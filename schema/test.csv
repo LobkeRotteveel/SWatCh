@@ -1,0 +1,2 @@
+DatasetName,MonitoringLocationID,MonitoringLocationName,MonitoringLocationType,MonitoringLocationLatitude,MonitoringLocationLongitude,MonitoringLocationHorizontalCoordinateReferenceSystem,ActivityType,ActivityMediaName,ActivityStartDate,CharacteristicName,ResultValueType,AnalysisStartTime
+Name,n122,LocName123,Great Lake,89,45.32,AMSMA,Quality Control Field Sample Equipment Rinsate Blank,Porewater,2021-09-15,Aluminum,Calculated,03:59
