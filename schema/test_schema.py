@@ -58,12 +58,13 @@ def test_print_out_all_fields_that_occur_for_number_types(schema):
     print("Number Type Constraints:", set(fields))
 
 
-def test_required_properties_constraint(df, schema):
-    required_properties = schema["required"]
-    existing_properties = df.columns
-
-    for prop in required_properties:
-        assert prop in existing_properties
+def test_only_defined_properties_in_data(df, schema):
+    valid_properties = schema["properties"].keys()
+    data_properties = df.columns
+    for prop in data_properties:
+        assert (
+            prop in valid_properties
+        ), f"Header Not in Schema Error: property {prop} is not a valid column header"
 
 
 def test_property_constraints(df, schema):
@@ -80,7 +81,7 @@ def test_property_constraints(df, schema):
                     for datum in data:
                         assert (
                             datum in enum_constraint
-                        ), f"Enum Error: {prop_name} property: value '{datum}' not in {enum_constraint}."
+                        ), f"Enum Error: {prop_name} property: value '{datum}' not in {enum_constraint}"
 
                 # Max String Length Constraint
                 max_length_constraint = prop.get("maxLength")
@@ -130,3 +131,22 @@ def test_property_constraints(df, schema):
                         assert (
                             datum >= min_constraint
                         ), f"Minimum Value Error: {prop_name} property: value '{datum}' < {min_constraint}"
+
+
+def test_required_properties_constraint(df, schema):
+    required_properties = schema["required"]
+    existing_properties = df.columns
+    for prop in required_properties:
+        assert (
+            prop in existing_properties
+        ), f"Required Property Error: property {prop} is missing as a column header"
+
+
+def test_property_dependencies(df, schema):
+    data_prop_names = df.columns
+    for prop_name, dependency_props in schema["dependencies"].items():
+        if prop_name in data_prop_names:
+            for required_prop_name in dependency_props:
+                assert (
+                    required_prop_name in data_prop_names
+                ), f"Missing Dependency Property: property {prop_name} requires {dependency_props}"
