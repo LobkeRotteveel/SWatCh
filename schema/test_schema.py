@@ -150,3 +150,120 @@ def test_property_dependencies(df, schema):
                 assert (
                     required_prop_name in data_prop_names
                 ), f"Missing Dependency Property: property {prop_name} requires {dependency_props}"
+
+
+def recursive_key_search(collection, key_counts):
+    if isinstance(collection, dict):
+        for key in collection.keys():
+            key_counts[key] = True
+            key_counts.update(recursive_key_search(collection[key], key_counts))
+    elif isinstance(collection, list):
+        for item in collection:
+            key_counts.update(recursive_key_search(item, key_counts))
+    return key_counts
+
+
+def test_print_out_keys_in_all_of_section(schema):
+    constraints = schema["allOf"]
+    key_counts = recursive_key_search(constraints, dict())
+    print(key_counts.keys())
+
+
+def test_complex_constraints_are_met(df, schema):
+    complex_constraints = schema["allOf"]
+    for constraint in complex_constraints:
+        print(f"Constraint {constraint['title']} is being evaluated...")
+        conditional = constraint.get("if")
+        if conditional is not None:
+            # Determine if the constraint applies based on the datas headers (properties)
+            requirements_to_evaluate_conditional = conditional.get("required")
+            if requirements_to_evaluate_conditional is not None:
+                requirements_to_check_conditional_met = all(
+                    [
+                        prop in df.columns
+                        for prop in requirements_to_evaluate_conditional
+                    ]
+                )
+                if not requirements_to_check_conditional_met:
+                    print("Constraint Skipped: Required properties not met")
+                    continue
+
+            # Determine if the constraint applies on the datas values (row wise)
+            for i, row in df.iterrows():
+                constraint_applies = True
+                properties = conditional.get("properties")
+                if properties is not None:
+                    for prop_name, prop in properties.items():
+                        # Handle regular value
+                        if not isinstance(prop, dict) and not isinstance(prop, list):
+                            if row[prop_name] != prop:
+                                print("Constraint Skipped: Property value mismatch")
+                                constraint_applies = False
+
+                        # Handle the enumeration
+                        enum = prop.get("enum")
+                        if enum is not None:
+                            if row[prop_name] not in enum:
+                                print("Constraint Skipped: Enum mismatch")
+                                constraint_applies = False
+
+                        # Handle the negated enumeration
+                        not_clause = prop.get("not")
+                        if not_clause is not None:
+                            not_enum = not_clause.get("enum")
+                            if not_enum is not None:
+                                if row[prop_name] in not_enum:
+                                    print("Constraint Skipped: Negated enum mismatch")
+                                    constraint_applies = False
+
+                        # Handle regex pattern
+                        pattern = prop.get("pattern")
+                        if pattern is not None:
+                            p = re.compile(pattern)
+                            if p.match(row[prop_name]) is None:
+                                print("Constraint Skipped: Pattern did not match")
+                                constraint_applies = False
+
+                if constraint_applies:
+                    then_clause = constraint.get("then")
+                    if then_clause is not None:
+                        # Handle required
+                        required_properties = then_clause.get("required")
+                        if required_properties:
+                            for prop in required_properties:
+                                assert (
+                                    prop in df.columns
+                                ), f"Complex Constraint Error: {constraint['title']} constraint: {prop} required"
+
+                        # Handle anyOf
+                        constraint_met = False
+                        any_of_clause = then_clause.get("anyOf")
+                        if any_of_clause is not None:
+                            for clause in any_of_clause:
+                                dependencies = clause.get("dependencies")
+                                if dependencies is not None:
+                                    dependencies_met = True
+                                    for (
+                                        prop_name,
+                                        prop_dependencies,
+                                    ) in dependencies.items():
+                                        if prop_name in df.columns:
+                                            dependencies_met = all(
+                                                [
+                                                    prop in df.columns
+                                                    for prop in prop_dependencies
+                                                ]
+                                            )
+                                    if dependencies_met:
+                                        constraint_met = True
+                            assert (
+                                constraint_met
+                            ), f"Complex Constraint Error: {constraint['title']} constraint: anyOf clause failed on row '{row}'"
+
+        # Handle oneof condition
+        one_of_conditional = constraint.get("oneOf")
+        if one_of_conditional is not None:
+            number_true = 0
+            for conditional in one_of_conditional:
+                # raise NotImplementedError
+                pass
