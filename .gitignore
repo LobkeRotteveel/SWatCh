@@ -1,1 +1,6 @@
 __pycache__/
+input\ data/
+scripts/venv/
+*.csv
+*.ods
+*.egg-info/
