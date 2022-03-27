@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from jsonschema import validate
 import jsonschema
 import pandas as pd
@@ -31,6 +33,20 @@ def init_cli():
     return parser
 
 
+dtype_map = {
+    "string": str,
+    "number": float,
+}
+
+
+def get_column_dtypes_from_schema(schema):
+    column_dtypes = dict()
+    properties = schema["properties"]
+    for col_name, col_details in properties.items():
+        column_dtypes[col_name] = dtype_map[col_details["type"]]
+    return column_dtypes
+
+
 def main():
     cli = init_cli()
     args = cli.parse_args()
@@ -38,7 +54,8 @@ def main():
     with open(args.schema_path) as file:
         schema = json.load(file)
 
-    df = pd.read_csv(args.csv_path)
+    dtypes = get_column_dtypes_from_schema(schema)
+    df = pd.read_csv(args.csv_path, dtype=dtypes)
     json_string = df.to_json(orient="records")
     data = json.loads(json_string)
 
