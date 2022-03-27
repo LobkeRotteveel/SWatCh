@@ -64,6 +64,7 @@ def main():
         if fails >= args.max_fails:
             break
         try:
+            record = {k: v for k, v in record.items() if v is not None}
             validate(instance=record, schema=schema)
         except jsonschema.exceptions.ValidationError as e:
             print(f"row: {i}")
