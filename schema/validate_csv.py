@@ -10,6 +10,8 @@ from tqdm import tqdm
 import multiprocessing as mp
 import time
 import queue
+import sys
+import math
 
 
 def init_cli():
@@ -83,6 +85,7 @@ def validation_error_report(e, row):
 
 
 def worker(records, schema, start_row, validation_error_queue, row_progress_queue):
+    reports = list()
     for relative_row, record in enumerate(records):
         try:
             validate(instance=record, schema=schema)
@@ -90,7 +93,9 @@ def worker(records, schema, start_row, validation_error_queue, row_progress_queu
             absolute_row = start_row + relative_row
             report = validation_error_report(e, absolute_row)
             validation_error_queue.put(report)
+            reports.append(report)
         row_progress_queue.put(1)
+    return (len(records), reports)
 
 
 def get_row_progress_update(progress_queue):
@@ -115,6 +120,64 @@ def get_validation_reports(report_queue):
     return reports
 
 
+def chunk_records(records, n):
+    length = len(records)
+    chunk_size = math.ceil(length / n)
+    for chunk_num in range(n):
+        start = chunk_num * chunk_size
+        stop = (chunk_num + 1) * chunk_size
+        if stop >= length:
+            stop = length
+        yield records[start:stop], start, stop
+
+
+def dispatch_workers(records, schema, manager, pool, n, validation_error_queue):
+    progress_queues = list()
+    results = list()
+    for chunk, start_row, end_row in chunk_records(records, n):
+        row_progress_queue = manager.Queue()
+        progress_queues.append(row_progress_queue)
+        result = pool.apply_async(
+            worker,
+            (
+                chunk,
+                schema,
+                start_row,
+                validation_error_queue,
+                row_progress_queue,
+            ),
+        )
+        results.append(result)
+    return results, progress_queues
+
+
+def are_results_ready(results):
+    return all([result.ready() for result in results])
+
+
+def get_results(results):
+    return [result.get() for result in results]
+
+
+def update_progress_bar(pbar, progress_queues):
+    for progress_queue in progress_queues:
+        try:
+            rows_done = get_row_progress_update(progress_queue)
+            if rows_done:
+                pbar.update(rows_done)
+        except queue.Empty:
+            pass
+
+
+def print_validation_reports(validation_error_queue):
+    try:
+        reports = get_validation_reports(validation_error_queue)
+        for report in reports:
+            tqdm.write(report)
+    except queue.Empty:
+        pass
+
+
 def main():
     cli = init_cli()
     args = cli.parse_args()
@@ -137,36 +200,29 @@ def main():
         skiprows=lambda x: x != 0 and x < args.start_row,
     )
     json_string = df.to_json(orient="records")
-    data = json.loads(json_string)
+    records = json.loads(json_string)
 
     fails = 0
     with tqdm(total=data_rows) as pbar:
         pbar.n = start_data_row
         pbar.refresh()
 
-        row_progress_queue = manager.Queue()
-        result = pool.apply_async(
-            worker,
-            (data, schema, start_data_row, validation_error_queue, row_progress_queue),
+        results, progress_queues = dispatch_workers(
+            records,
+            schema,
+            manager,
+            pool,
+            args.processes,
+            validation_error_queue,
         )
         pool.close()
 
         rows_counted = 0
-        while not result.ready():
-            try:
-                rows_done = get_row_progress_update(row_progress_queue)
-                if rows_done:
-                    pbar.update(rows_done)
-            except queue.Empty:
-                pass
-
-            try:
-                reports = get_validation_reports(validation_error_queue)
-                for report in reports:
-                    print(report)
-                    print()
-            except queue.Empty:
-                pass
+        while not are_results_ready(results):
+            time.sleep(0.2)
+            update_progress_bar(pbar, progress_queues)
+            print_validation_reports(validation_error_queue)
+        time.sleep(1)
 
 
 if __name__ == "__main__":
