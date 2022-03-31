@@ -7,6 +7,9 @@ import json
 from pprint import pprint
 import argparse
 from tqdm import tqdm
+import multiprocessing as mp
+import time
+import queue
 
 
 def init_cli():
@@ -30,6 +33,12 @@ def init_cli():
         type=int,
         default=0,
         help="The row index from which to start",
+    )
+    parser.add_argument(
+        "--processes",
+        type=int,
+        default=1,
+        help="Number of processes to use for validation",
     )
     parser.add_argument(
         "csv_path",
@@ -73,9 +82,46 @@ def validation_error_report(e, row):
     )
 
 
+def worker(records, schema, start_row, validation_error_queue, row_progress_queue):
+    for relative_row, record in enumerate(records):
+        try:
+            validate(instance=record, schema=schema)
+        except jsonschema.exceptions.ValidationError as e:
+            absolute_row = start_row + relative_row
+            report = validation_error_report(e, absolute_row)
+            validation_error_queue.put(report)
+        row_progress_queue.put(1)
+
+
+def get_row_progress_update(progress_queue):
+    total_rows = 0
+    while True:
+        try:
+            update = progress_queue.get(False)
+            total_rows += update
+        except queue.Empty:
+            break
+    return total_rows
+
+
+def get_validation_reports(report_queue):
+    reports = list()
+    while True:
+        try:
+            report = report_queue.get(False)
+            reports.append(report)
+        except queue.Empty:
+            break
+    return reports
+
+
 def main():
     cli = init_cli()
     args = cli.parse_args()
+
+    manager = mp.Manager()
+    validation_error_queue = manager.Queue()
+    pool = mp.Pool(processes=args.processes)
 
     with open(args.schema_path) as file:
         schema = json.load(file)
@@ -83,8 +129,8 @@ def main():
     dtypes = get_column_dtypes_from_schema(schema)
     csv_rows = lines_in_file(args.csv_path)
     header_rows = 1
-    row_offset = csv_rows - header_rows
-    start_data_row = args.start_row - header_rows
+    data_rows = csv_rows - header_rows
+    start_data_row = args.start_row + header_rows
     df = pd.read_csv(
         args.csv_path,
         dtype=dtypes,
@@ -94,20 +140,33 @@ def main():
     data = json.loads(json_string)
 
     fails = 0
-    with tqdm(total=row_offset) as pbar:
+    with tqdm(total=data_rows) as pbar:
         pbar.n = start_data_row
         pbar.refresh()
-        for start_relative_row, record in enumerate(data):
-            if fails >= args.max_fails:
-                break
+
+        row_progress_queue = manager.Queue()
+        result = pool.apply_async(
+            worker,
+            (data, schema, start_data_row, validation_error_queue, row_progress_queue),
+        )
+        pool.close()
+
+        rows_counted = 0
+        while not result.ready():
             try:
-                validate(instance=record, schema=schema)
-            except jsonschema.exceptions.ValidationError as e:
-                absolute_row = args.start_row + start_relative_row
-                print(validation_error_report(e, absolute_row))
-                print()
-                fails += 1
-            pbar.update(1)
+                rows_done = get_row_progress_update(row_progress_queue)
+                if rows_done:
+                    pbar.update(rows_done)
+            except queue.Empty:
+                pass
+
+            try:
+                reports = get_validation_reports(validation_error_queue)
+                for report in reports:
+                    print(report)
+                    print()
+            except queue.Empty:
+                pass
 
 
 if __name__ == "__main__":
