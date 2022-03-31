@@ -25,6 +25,9 @@ def init_cli():
         help="Maximum number of failed records before exiting",
     )
     parser.add_argument(
+        "--start-row", type=int, default=0, help="The row index from which to start"
+    )
+    parser.add_argument(
         "csv_path",
         type=str,
         metavar="CSV_PATH",
@@ -55,7 +58,9 @@ def main():
         schema = json.load(file)
 
     dtypes = get_column_dtypes_from_schema(schema)
-    df = pd.read_csv(args.csv_path, dtype=dtypes)
+    df = pd.read_csv(
+        args.csv_path, dtype=dtypes, skiprows=lambda x: x != 0 and x < args.start_row
+    )
     json_string = df.to_json(orient="records")
     data = json.loads(json_string)
 
