@@ -368,10 +368,10 @@ def validation_error_report(e, row):
             f"row: {row}",
             f"{e.validator} validator failed because: {e.message}",
             f"offending json element:",
-            str(e.instance),
+            pformat(e.instance),
             f"json path: {e.json_path}",
             f"applicable schema:",
-            str(e.schema),
+            pformat(e.schema),
         ]
     )
 
