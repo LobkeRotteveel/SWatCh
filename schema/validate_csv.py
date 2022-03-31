@@ -101,8 +101,8 @@ def init_cli():
     parser.add_argument(
         "--start-row",
         type=int,
-        default=0,
-        help="The row index from which to start",
+        default=2,
+        help="The row 1-index from which to start",
     )
     parser.add_argument(
         "--processes",
