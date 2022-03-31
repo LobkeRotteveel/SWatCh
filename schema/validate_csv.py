@@ -4,11 +4,10 @@ from jsonschema import validate
 import jsonschema
 import pandas as pd
 import json
-from pprint import pprint
+from pprint import pformat
 import argparse
 from tqdm import tqdm
 import multiprocessing as mp
-import time
 import queue
 import sys
 import math
@@ -73,7 +72,7 @@ def lines_in_file(file_path):
 def validation_error_report(e, row):
     return "\n".join(
         [
-            f"row (0-index, including header): {row}",
+            f"row: {row}",
             f"{e.validator} validator failed because: {e.message}",
             f"offending json element:",
             str(e.instance),
@@ -131,10 +130,13 @@ def chunk_records(records, n):
         yield records[start:stop], start, stop
 
 
-def dispatch_workers(records, schema, manager, pool, n, validation_error_queue):
+def dispatch_workers(
+    records, start_row, schema, manager, pool, n, validation_error_queue
+):
     progress_queues = list()
     results = list()
-    for chunk, start_row, end_row in chunk_records(records, n):
+    for chunk, chunk_start_row, _ in chunk_records(records, n):
+        file_relative_worker_start_row = start_row + chunk_start_row
         row_progress_queue = manager.Queue()
         progress_queues.append(row_progress_queue)
         result = pool.apply_async(
@@ -142,7 +144,7 @@ def dispatch_workers(records, schema, manager, pool, n, validation_error_queue):
             (
                 chunk,
                 schema,
-                start_row,
+                file_relative_worker_start_row,
                 validation_error_queue,
                 row_progress_queue,
             ),
@@ -161,21 +163,34 @@ def get_results(results):
 
 def update_progress_bar(pbar, progress_queues):
     for progress_queue in progress_queues:
-        try:
-            rows_done = get_row_progress_update(progress_queue)
-            if rows_done:
-                pbar.update(rows_done)
-        except queue.Empty:
-            pass
+        rows_done = get_row_progress_update(progress_queue)
+        if rows_done:
+            pbar.update(rows_done)
 
 
-def print_validation_reports(validation_error_queue):
-    try:
-        reports = get_validation_reports(validation_error_queue)
-        for report in reports:
-            tqdm.write(report)
-    except queue.Empty:
-        pass
+def print_validation_reports(validation_error_queue, max_reports):
+    reports = get_validation_reports(validation_error_queue)
+    report_num = len(reports)
+    if report_num > max_reports:
+        reports = reports[:max_reports]
+    for report in reports:
+        tqdm.write(report)
+        tqdm.write("")
+    return report_num
+
+
+def load_records(csv_path, start_row, schema):
+    # convert start_row to 0-index
+    start_row -= 1
+    dtypes = get_column_dtypes_from_schema(schema)
+    df = pd.read_csv(
+        csv_path,
+        dtype=dtypes,
+        skiprows=lambda x: x != 0 and x < start_row,
+    )
+    json_string = df.to_json(orient="records")
+    records = json.loads(json_string)
+    return records
 
 
 def main():
@@ -189,26 +204,20 @@ def main():
     with open(args.schema_path) as file:
         schema = json.load(file)
 
-    dtypes = get_column_dtypes_from_schema(schema)
     csv_rows = lines_in_file(args.csv_path)
     header_rows = 1
     data_rows = csv_rows - header_rows
-    start_data_row = args.start_row + header_rows
-    df = pd.read_csv(
-        args.csv_path,
-        dtype=dtypes,
-        skiprows=lambda x: x != 0 and x < args.start_row,
-    )
-    json_string = df.to_json(orient="records")
-    records = json.loads(json_string)
 
-    fails = 0
-    with tqdm(total=data_rows) as pbar:
-        pbar.n = start_data_row
+    records = load_records(args.csv_path, args.start_row, schema)
+
+    total_fails = 0
+    with tqdm(total=csv_rows) as pbar:
+        pbar.n = args.start_row - 1
         pbar.refresh()
 
         results, progress_queues = dispatch_workers(
             records,
+            args.start_row,
             schema,
             manager,
             pool,
@@ -219,10 +228,16 @@ def main():
 
         rows_counted = 0
         while not are_results_ready(results):
-            time.sleep(0.2)
+            if total_fails > args.max_fails:
+                tqdm.write("Exit Condition: Max failures reached")
+                sys.exit(1)
             update_progress_bar(pbar, progress_queues)
-            print_validation_reports(validation_error_queue)
-        time.sleep(1)
+            max_reports = args.max_fails - total_fails
+            fails = print_validation_reports(validation_error_queue, max_reports)
+            total_fails += fails
+
+        pbar.n = csv_rows
+        pbar.refresh()
 
 
 if __name__ == "__main__":
