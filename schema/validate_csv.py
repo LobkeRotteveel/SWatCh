@@ -56,6 +56,20 @@ def lines_in_file(file_path):
         return sum(1 for _ in f)
 
 
+def validation_error_report(e, row):
+    return "\n".join(
+        [
+            f"row (0-index, including header): {row}",
+            f"{e.validator} validator failed because: {e.message}",
+            f"offending json element:",
+            str(e.instance),
+            f"json path: {e.json_path}",
+            f"applicable schema:",
+            str(e.schema),
+        ]
+    )
+
+
 def main():
     cli = init_cli()
     args = cli.parse_args()
@@ -80,19 +94,14 @@ def main():
     with tqdm(total=row_offset) as pbar:
         pbar.n = start_data_row
         pbar.refresh()
-        for i, record in enumerate(data):
+        for start_relative_row, record in enumerate(data):
             if fails >= args.max_fails:
                 break
             try:
                 validate(instance=record, schema=schema)
             except jsonschema.exceptions.ValidationError as e:
-                print(f"row (0-index, including header): {i + args.start_row}")
-                print(f"{e.validator} validator failed because: {e.message}")
-                print(f"offending json element:")
-                pprint(e.instance)
-                print(f"json path: {e.json_path}")
-                print(f"applicable schema:")
-                print(e.schema)
+                absolute_row = args.start_row + start_relative_row
+                print(validation_error_report(e, absolute_row))
                 print()
                 fails += 1
             pbar.update(1)
