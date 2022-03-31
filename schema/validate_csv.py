@@ -14,6 +14,28 @@ import math
 
 
 def main():
+    """
+    Validate CSV file records against JSON schema.
+
+    The CSV file must have a single header row. This is used to validate
+    the records against the JSON schema.
+     * The row at which to start the validation within the CSV file can
+       be specified.
+     * The maximum failures / validation error reports before the CLI
+       terminates can be set.
+     * The validation error reports are printed to screen with a
+       reference to the CSV file relative row where it occurred.
+     * The validation error reports are printed to screen with
+       contextual information about what caused the validation error.
+     * Multiple processes can be used to validate the CSV file records
+       in parallel.
+
+    One must be careful when using start row and multiprocessing
+    together because not all rows before the first failure are
+    validated. This is because the records are chunked and given to
+    separate workers. Each worker validates a single chunk. Validation
+    errors can be found by any worker, anywhere in the file.
+    """
     cli = init_cli()
     args = cli.parse_args()
 
@@ -98,12 +120,42 @@ def init_cli():
 
 
 def load_schema(schema_path):
+    """
+    Loads the jsonschema from a file path.
+
+    This is the schema that is used to validate the csv file.
+
+    :param      schema_path:  The schema file path
+    :type       schema_path:  str
+    """
     with open(schema_path) as file:
         schema = json.load(file)
     return schema
 
 
 def load_records(csv_path, start_row, schema):
+    """
+    Loads the records from a CSV file path.
+
+    Each row in the CSV file is converted into an individual JSON record
+    that can be validated against the schema. The jsonschema is used by
+    this function to set the data types of the loaded in records.
+
+    :param      csv_path:   The path to the CSV file
+    :type       csv_path:   str
+    :param      start_row:  The file relative row at which to start. All
+                            rows before this row will be skipped,
+                            excluding the header row.
+    :type       start_row:  int
+    :param      schema:     The jsonschema used to validate the CSV
+                            file.
+    :type       schema:     json object
+
+    :returns:   A list of individual records for every row in the CSV
+                file. Each record is ready to be validated against the
+                jsonschema.
+    :rtype:     list of json object
+    """
     # convert start_row to 0-index
     start_row -= 1
     dtypes = get_column_dtypes_from_schema(schema)
@@ -118,6 +170,20 @@ def load_records(csv_path, start_row, schema):
 
 
 def get_column_dtypes_from_schema(schema):
+    """
+    Gets the column data types from the jsonschema.
+
+    Specifying data types when reading the CSV file using pandas speeds
+    up loading, and makes sure columns are read in as the correct data
+    types.
+
+    :param      schema:  The json schema
+    :type       schema:  json object
+
+    :returns:   A map from column name to python data type. Ready to be
+                given to pandas.read_csv.
+    :rtype:     dictionary
+    """
     column_dtypes = dict()
     properties = schema["properties"]
     for col_name, col_details in properties.items():
@@ -125,6 +191,9 @@ def get_column_dtypes_from_schema(schema):
     return column_dtypes
 
 
+"""
+A map from jsonschema data types to python data types.
+"""
 dtype_map = {
     "string": str,
     "number": float,
@@ -132,6 +201,12 @@ dtype_map = {
 
 
 def lines_in_file(file_path):
+    """
+    Count the number of lines in a file.
+
+    :param      file_path:  The file path
+    :type       file_path:  str
+    """
     with open(file_path) as f:
         return sum(1 for _ in f)
 
@@ -139,6 +214,49 @@ def lines_in_file(file_path):
 def dispatch_workers(
     records, start_row, schema, manager, pool, n, validation_error_queue
 ):
+    """
+    Dispatch the validation workers using a pool.
+
+    The records loaded from the CSV file are chunked into approximately
+    equal chunks based on how many processes are used for validation.
+    The chunks are distributed to workers from a pool. Each worker
+    reports its progress using an individual progress queue, and reports
+    its encountered validation errors using the validation error queue.
+    The individual progress queue are returned by the function for
+    monitoring by another process.
+
+    :param      records:                 The CSV records for validation.
+                                         In their json object form.
+    :type       records:                 json object
+    :param      start_row:               The row at which the user
+                                         requested the validation start.
+                                         1-index based and relative to
+                                         the original CSV file.
+    :type       start_row:               int
+    :param      schema:                  The json schema to validate
+                                         against.
+    :type       schema:                  json object
+    :param      manager:                 The multiprocessing manager.
+                                         Used to create the individual
+                                         progress queues that are
+                                         returned to the caller.
+    :type       manager:                 mp.Manager
+    :param      pool:                    The worker pool to dispatch
+                                         workers to.
+    :type       pool:                    mp.Pool
+    :param      n:                       The number of processes,
+                                         workers, and chunks.
+    :type       n:                       int
+    :param      validation_error_queue:  The queue used to return
+                                         validation error reports back
+                                         to the calling process.
+    :type       validation_error_queue:  mp.Queue
+
+    :returns:   A tuple containing the async results return from
+                pool.apply_async for each worker, and the individual
+                progress queues for each worker.
+    :rtype:     (list[mp.pool.AsyncResult], list[mp.Queue])
+    """
     progress_queues = list()
     results = list()
     for chunk, chunk_start_row, _ in chunk_records(records, n):
@@ -160,6 +278,22 @@ def dispatch_workers(
 
 
 def chunk_records(records, n):
+    """
+    Break the records into approximately equal chunks.
+
+    The larger the difference between the length of records and the
+    number of chunks the better the approximation becomes.
+
+    :param      records:  The records from the CSV file. In their json
+                          form.
+    :type       records:  json object
+    :param      n:        The number of chunks to break the records
+                          into.
+    :type       n:        int
+
+    :returns:   A list of chunked records.
+    :rtype:     list[list[json object]]
+    """
     length = len(records)
     chunk_size = math.ceil(length / n)
     for chunk_num in range(n):
@@ -171,6 +305,35 @@ def chunk_records(records, n):
 
 
 def worker(records, schema, start_row, validation_error_queue, row_progress_queue):
+    """
+    The worker that performs the validation of a chunk of records.
+
+    The worker reports on validation failures as they happen using the
+    validation error queue. The worker also reports its progress using
+    the progress queue.
+
+    :param      records:                 The records from the CSV file.
+                                         In their json object form.
+    :type       records:                 list[json object]
+    :param      schema:                  The json schema to validate
+                                         against.
+    :type       schema:                  jsonschema
+    :param      start_row:               The CSV file relative row at
+                                         which the chunk this work is
+                                         responsible for starts.
+    :type       start_row:               int
+    :param      validation_error_queue:  The queue used to send
+                                         validation error reports back
+                                         to the caller.
+    :type       validation_error_queue:  mp.Queue
+    :param      row_progress_queue:      The queue used to send progress
+                                         back to the caller.
+    :type       row_progress_queue:      mp.Queue
+
+    :returns:   Returns a tuple of the number of records processed, and
+                reports on the validation errors encountered.
+    :rtype:     (int, list[str])
+    """
     reports = list()
     for relative_row, record in enumerate(records):
         try:
@@ -185,6 +348,21 @@ def worker(records, schema, start_row, validation_error_queue, row_progress_queu
 
 
 def validation_error_report(e, row):
+    """
+    The function responsible for generating the validation error report.
+
+    Uses the validation error and the file relative row number to
+    generate a validation error report.
+
+    :param      e:    The validation error.
+    :type       e:    jsonschema.exceptions.ValidationError
+    :param      row:  The CSV file relative row at which the validation
+                      error occurred.
+    :type       row:  int
+
+    :returns:   The validation error report
+    :rtype:     str
+    """
     return "\n".join(
         [
             f"row: {row}",
@@ -199,10 +377,27 @@ def validation_error_report(e, row):
 
 
 def are_results_ready(results):
+    """
+    Returns if all async results from workers are ready.
+
+    :param      results:  The results from workers.
+    :type       results:  list[mp.pool.AsyncResult]
+
+    :returns:   If all results are ready
+    :rtype:     bool
+    """
     return all([result.ready() for result in results])
 
 
 def update_progress_bar(pbar, progress_queues):
+    """
+    Updates the tqdm progress bar using progress queue.
+
+    :param      pbar:             The tqdm progress bar.
+    :type       pbar:             tqdm.tqdm
+    :param      progress_queues:  A list of the worker progress queues.
+    :type       progress_queues:  list[mp.Queue]
+    """
     for progress_queue in progress_queues:
         rows_done = get_row_progress_update(progress_queue)
         if rows_done:
@@ -210,6 +405,19 @@ def update_progress_bar(pbar, progress_queues):
 
 
 def get_row_progress_update(progress_queue):
+    """
+    Retrieves all the progress updates currently on a queue.
+
+    This function expects the queue to contain only integers that
+    represent how many rows have been processed.
+
+    :param      progress_queue:  The queue to receives the worker's row
+                                 progress updates.
+    :type       progress_queue:  mp.Queue
+
+    :returns:   The total amount of rows completed since last update.
+    :rtype:     int
+    """
     total_rows = 0
     while True:
         try:
@@ -221,6 +429,32 @@ def get_row_progress_update(progress_queue):
 
 
 def print_validation_reports(validation_error_queue, printed_reports, report_quota):
+    """
+    Prints all the validation error reports to the screen.
+
+    Uses tqdm.write to keep the progress bar intact. Will only print out
+    as many reports as the user asked for using max fails option, even
+    if it received more. This is because when exiting due to max fails
+    reached there is no guarantee that more will not arrive while each
+    process is exiting. This provides the user with a consistent
+    experience.
+
+    :param      validation_error_queue:  The queue used to receive
+                                         validation error reports from
+                                         the validation workers.
+    :type       validation_error_queue:  mp.Queue
+    :param      printed_reports:         The number of reports that have
+                                         been printed for the user.
+    :type       printed_reports:         int
+    :param      report_quota:            The number of reports that the
+                                         user asked for with max fails
+                                         options.
+    :type       report_quota:            int
+
+    :returns:   The number of reports printed to the screen.
+    :rtype:     int
+    """
+
     max_reports = report_quota - printed_reports
     reports = get_validation_reports(validation_error_queue)
     report_num = len(reports)
@@ -233,6 +467,17 @@ def print_validation_reports(validation_error_queue, printed_reports, report_quo
 
 
 def get_validation_reports(report_queue):
+    """
+    Retrieve the validation reports from the validation worker using the
+    report queue.
+
+    :param      report_queue:  The queue used by the worker to send
+                               validation error reports.
+    :type       report_queue:  mp.Queue
+
+    :returns:   The validation error reports received on the queue.
+    :rtype:     list[str]
+    """
     reports = list()
     while True:
         try:
