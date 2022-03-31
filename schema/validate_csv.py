@@ -26,7 +26,10 @@ def init_cli():
         help="Maximum number of failed records before exiting",
     )
     parser.add_argument(
-        "--start-row", type=int, default=0, help="The row index from which to start"
+        "--start-row",
+        type=int,
+        default=0,
+        help="The row index from which to start",
     )
     parser.add_argument(
         "csv_path",
