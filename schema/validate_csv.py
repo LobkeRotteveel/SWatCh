@@ -29,6 +29,7 @@ def main():
        contextual information about what caused the validation error.
      * Multiple processes can be used to validate the CSV file records
        in parallel.
+     * Overall validation progress is shown using a progress bar.
 
     One must be careful when using start row and multiprocessing
     together because not all rows before the first failure are
