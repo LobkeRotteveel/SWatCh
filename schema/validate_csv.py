@@ -26,7 +26,7 @@ def init_cli():
     parser.add_argument(
         "--max-fails",
         type=int,
-        default=10,
+        default=1,
         help="Maximum number of failed records before exiting",
     )
     parser.add_argument(
