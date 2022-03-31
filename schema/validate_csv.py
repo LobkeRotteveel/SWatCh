@@ -65,6 +65,9 @@ def main():
 
     dtypes = get_column_dtypes_from_schema(schema)
     csv_rows = lines_in_file(args.csv_path)
+    header_rows = 1
+    row_offset = csv_rows - header_rows
+    start_data_row = args.start_row - header_rows
     df = pd.read_csv(
         args.csv_path,
         dtype=dtypes,
@@ -74,8 +77,8 @@ def main():
     data = json.loads(json_string)
 
     fails = 0
-    with tqdm(total=csv_rows - 1) as pbar:
-        pbar.n = args.start_row - 1
+    with tqdm(total=row_offset) as pbar:
+        pbar.n = start_data_row
         pbar.refresh()
         for i, record in enumerate(data):
             if fails >= args.max_fails:
@@ -83,7 +86,7 @@ def main():
             try:
                 validate(instance=record, schema=schema)
             except jsonschema.exceptions.ValidationError as e:
-                print(f"row: {i}")
+                print(f"row (0-index, including header): {i + args.start_row}")
                 print(f"{e.validator} validator failed because: {e.message}")
                 print(f"offending json element:")
                 pprint(e.instance)
