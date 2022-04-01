@@ -1,424 +1,882 @@
 """ Clean sample data from ECCC
 
-Script to clean sample data obtained from Environment and Climate Change
-Canada National Long-term Water Quality Monitoring Database.
+Script to clean dataset obtained from Environment and Climate Change
+Canada National Long-Term Water Quality Monitoring Data.
 Data source: http://data.ec.gc.ca/data/substances/monitor/national-long-
              term-water-quality-monitoring-data/
 
 Approach:
-    * Extract data
-    * Standardize column names
-    * Standardize naming conventions
-    * Standardize dataframe structure
-    * Standardize data types
-    * Standardize below detection limit notation
-    * Standardize units
-    * Standardize float data
-    * Remove impossible values
-    * Remove duplicates
-    * Extract method data
-    * Finalize site data
-
-Assumptions:
-    * Units listed as "ďż˝G/L" and "ÂľG/L" are ug/L, based on plausible
-      values.
+    * Merge datasets
+    * Extract desired data
+    * Format dataset structure
+    * Format naming conventions
+        * Parameter names
+        * Parameter fractions
+        * Unit names
+        * Data types
 
 Notes:
     * Both preliminary and validated data are retained to maintain maximum
       sample size. QAQC on preliminary data is recommended before use.
+    * Encoding is not consistent across input datasets. Units decoded as
+      "ďż˝G/L" and "ÂľG/L" are ug/L.
+    * If a parameter is specified as "extractable/unfiltered", it is
+      classified as "extractable".
+    * If a parameter is not specified as "calculated", it is classified as
+      "actual".
+    * If a parameter is not specified as "field", it is classified as
+      "Sample-Routine".
 
 Input:
-    * raw_samples_eccc_[waterbody].csv
-    * intermediate_sites_eccc.csv
-    * raw_methods_eccc.csv
+    * raw_eccc_samples_[waterbody].csv
+    * raw_eccc_sites.csv
+    * raw_eccc_methods.csv
 
 Output:
-    * cleaned_sites_eccc.csv
-    * cleaned_samples_eccc.csv
-    * cleaned_methods_eccc.csv
+    * cleaned_eccc.csv
 """
+
 
 import os
 import re
 import pandas as pd
 import numpy as np
+import datetime as dt
+from collections import namedtuple
 from swatch_utils import set_type
 from swatch_utils import convert
 from swatch_utils import extract
 from swatch_utils import check
 
 
-print('Importing data...')
+parameters = namedtuple("parameters", "name fraction speciation type activity")
+parameters = {
+    "CALCIUM DISSOLVED": parameters(
+        "Calcium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CARBON DISSOLVED ORGANIC": parameters(
+        "Organic carbon",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CHLORIDE DISSOLVED": parameters(
+        "Chloride",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "FLUORIDE DISSOLVED": parameters(
+        "Fluoride",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "MAGNESIUM DISSOLVED": parameters(
+        "Magnesium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "PH": parameters(
+        "pH",
+        np.nan,
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "PHOSPHORUS TOTAL": parameters(
+        "Total Phosphorus, mixed forms",
+        "Unfiltered",
+        "as P",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "PHOSPHORUS TOTAL DISSOLVED": parameters(
+        "Total Phosphorus, mixed forms",
+        "Filtered",
+        "as P",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM, FILTERED": parameters(
+        "Potassium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM, FILTERED": parameters(
+        "Sodium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SULPHATE DISSOLVED": parameters(
+        "Sulfate",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "TEMPERATURE WATER": parameters(
+        "Temperature, water",
+        np.nan,
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALUMINUM TOTAL": parameters(
+        "Aluminum",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "IRON TOTAL": parameters(
+        "Iron",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALUMINUM DISSOLVED": parameters(
+        "Aluminum",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "IRON DISSOLVED": parameters(
+        "Iron",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM DISSOLVED/FILTERED": parameters(
+        "Potassium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM DISSOLVED/FILTERED": parameters(
+        "Sodium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALUMINUM EXTRACTABLE": parameters(
+        "Aluminum",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CALCIUM EXTRACTABLE/UNFILTERED": parameters(
+        "Calcium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CALCIUM TOTAL": parameters(
+        "Calcium",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "IRON EXTRACTABLE": parameters(
+        "Iron",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "MAGNESIUM EXTRACTABLE/UNFILTERED": parameters(
+        "Magnesium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "MAGNESIUM TOTAL": parameters(
+        "Magnesium",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM EXTRACTABLE/UNFILTERED": parameters(
+        "Potassium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM TOTAL": parameters(
+        "Potassium",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM EXTRACTABLE/UNFILTERED": parameters(
+        "Sodium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM TOTAL": parameters(
+        "Sodium",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "DISSOLVED NITROGEN NITRATE": parameters(
+        "Nitrate",
+        "Filtered",
+        "as N",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "NITROGEN DISSOLVED NITRITE": parameters(
+        "Nitrite",
+        "Filtered",
+        "as NO2",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CALCIUM EXTRACTABLE": parameters(
+        "Calcium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "MAGNESIUM EXTRACTABLE": parameters(
+        "Magnesium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "NITROGEN DISSOLVED NITRATE": parameters(
+        "Nitrate",
+        "Filtered",
+        "as NO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "NITROGEN NITRITE": parameters(
+        "Nitrite",
+        "Unspecified",
+        "as NO2",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM EXTRACTABLE": parameters(
+        "Potassium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM EXTRACTABLE": parameters(
+        "Sodium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM DISSOLVED": parameters(
+        "Potassium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM DISSOLVED": parameters(
+        "Sodium",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CARBON TOTAL ORGANIC": parameters(
+        "Organic carbon",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "FLUORIDE": parameters(
+        "Fluoride",
+        "Unspecified",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CHLORIDE": parameters(
+        "Chloride",
+        "Unspecified",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "NITROGEN TOTAL NITRATE": parameters(
+        "Nitrate",
+        "Unfiltered",
+        "as NO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SULPHATE": parameters(
+        "Sulfate",
+        "Unspecified",
+        "as SO4",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "TEMPERATURE WATER (FIELD)": parameters(
+        "Temperature, water",
+        np.nan,
+        np.nan,
+        "Actual",
+        "Field Msr/Obs",
+    ),
+    "NITRATE (AS N)": parameters(
+        "Nitrate",
+        "Unspecified",
+        "as N",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CALCIUM  TOTAL": parameters(
+        "Calcium",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM UNFILTERED": parameters(
+        "Potassium",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM UNFILTERED": parameters(
+        "Sodium",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CARBON, TOTAL ORGANIC (NON PURGEABLE)": parameters(
+        "Organic carbon",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CHLORIDE TOTAL": parameters(
+        "Chloride",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SULPHATE TOTAL": parameters(
+        "Sulfate",
+        "Unfiltered",
+        "as SO4",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "TOTAL NITRATE": parameters(
+        "Nitrate",
+        "Unfiltered",
+        "as NO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "TEMPERATURE (WATER)": parameters(
+        "Temperature, water",
+        np.nan,
+        np.nan,
+        "Actual",
+        "Field Msr/Obs",
+    ),  # assumed field measurement
+    "PH (FIELD)": parameters(
+        "pH",
+        np.nan,
+        np.nan,
+        "Actual",
+        "Field Msr/Obs",
+    ),
+    "PH THEORETICAL (CALCD.)": parameters(
+        "pH",
+        np.nan,
+        np.nan,
+        "Calculated",
+        "Sample-Routine",
+    ),
+    "NITRATE TOTAL": parameters(
+        "Nitrate",
+        "Unfiltered",
+        "as NO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CALCIUM  EXTRACTABLE/UNFILTERED": parameters(
+        "Calcium",
+        "Extractable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALUMINUM TOTAL RECOVERABLE": parameters(
+        "Aluminum",
+        "Total Recoverable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CALCIUM TOTAL RECOVERABLE": parameters(
+        "Calcium",
+        "Total Recoverable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "IRON TOTAL RECOVERABLE": parameters(
+        "Iron",
+        "Total Recoverable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "MAGNESIUM TOTAL RECOVERABLE": parameters(
+        "Magnesium",
+        "Total Recoverable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "POTASSIUM TOTAL RECOVERABLE": parameters(
+        "Potassium",
+        "Total Recoverable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "SODIUM TOTAL RECOVERABLE": parameters(
+        "Sodium",
+        "Total Recoverable",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ORTHOPHOSPHATE DISSOLVED/UNFILTERED": parameters(
+        "Orthophosphate",
+        "Unfiltered",
+        "as PO4",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ORTHOPHOSPHATE DISSOLVED": parameters(
+        "Orthophosphate",
+        "Unfiltered",
+        "as PO4",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "NITROGEN, NITRATE": parameters(
+        "Nitrate",
+        "Unspecified",
+        "as NO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "PHOSPHATE (AS P)": parameters(
+        "Total Phosphorus, mixed forms",
+        "Unspecified",
+        "as P",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALKALINITY TOTAL": parameters(
+        "Alkalinity, total",
+        "Unspecified",
+        "AS Unspecified",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALKALINITY TOTAL CACO3": parameters(
+        "Alkalinity, carbonate",
+        "Unspecified",
+        "as CaCO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALKALINITY GRAN CACO3": parameters(
+        "Alkalinity, carbonate",
+        "Unspecified",
+        "as CaCO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "ALKALINITY PHENOLPHTHALEIN CACO3": parameters(
+        "Alkalinity, Phenolphthalein (total hydroxide+1/2 carbonate)",
+        "Unspecified",
+        "as CaCO3",
+        "Actual",
+        "Sample-Routine",
+    ),
+    "HARDNESS  TOTAL LABORATORY (CALCD.) CACO3": parameters(
+        "Hardness, carbonate",
+        "Unfiltered",
+        "as CaCO3",
+        "Calculated",
+        "Sample-Routine",
+    ),
+    "HARDNESS TOTAL (CALCD.) CACO3": parameters(
+        "Hardness, carbonate",
+        "Unfiltered",
+        "as CaCO3",
+        "Calculated",
+        "Sample-Routine",
+    ),
+    "HARDNESS NON-CARB. (CALCD.)": parameters(
+        "Hardness, non-carbonate",
+        "Unspecified",
+        "as Unspecified",
+        "Calculated",
+        "Sample-Routine",
+    ),
+    "CARBON DIOXIDE FREE (CALC)": parameters(
+        "Carbon Dioxide, free CO2",
+        np.nan,
+        np.nan,
+        "Calculated",
+        "Sample-Routine",
+    ),
+    "CARBON TOTAL INORGANIC": parameters(
+        "Inorganic carbon",
+        "Unfiltered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CARBON DISSOLVED INORGANIC": parameters(
+        "Inorganic carbon",
+        "Filtered",
+        np.nan,
+        "Actual",
+        "Sample-Routine",
+    ),
+    "CARBON TOTAL ORGANIC (CALCD.)": parameters(
+        "Organic carbon",
+        "Unfiltered",
+        np.nan,
+        "Calculated",
+        "Sample-Routine",
+    ),
+    "BICARBONATE (CALCD.)": parameters(
+        "Bicarbonate",
+        "Unspecified",
+        np.nan,
+        "Calculated",
+        "Sample-Routine",
+    ),
+    "CARBONATE (CALCD.)": parameters(
+        "Carbonate",
+        "Unspecified",
+        np.nan,
+        "Calculated",
+        "Sample-Routine",
+    ),
+}
+parameters_name = dict()
+for i in parameters:
+    parameters_name[i] = parameters[i].name
 
-path = r'/mnt/boggart/Files/Documents/university/research/SWatCh/input datasets/eccc'
+parameters_fractions = dict()
+for i in parameters:
+    parameters_fractions[i] = parameters[i].fraction
+
+parameters_speciation = dict()
+for i in parameters:
+    parameters_speciation[i] = parameters[i].speciation
+
+parameters_type = dict()
+for i in parameters:
+    parameters_type[i] = parameters[i].type
+
+parameters_activity = dict()
+for i in parameters:
+    parameters_activity[i] = parameters[i].activity
+
+print("Importing data...")
+
+path = r"/home/lobke/Boggart/Files/Manuscripts/SWatCh/for publication/data and scripts/scripts"
 directory = os.listdir(path)
 
 df = pd.DataFrame()
 
 for file in directory:
-    if 'raw_samples' in file:
-        df_temp = pd.read_csv(file, sep=',', encoding='ISO-8859-2')
-        df = df.append(df_temp, sort=True, ignore_index=True)
+    if "raw_eccc_samples" in file:
+        df_temp = pd.read_csv(
+            file,
+            usecols=[
+                "SITE_NO",
+                "DATE_TIME_HEURE",
+                "FLAG_MARQUEUR",
+                "VALUE_VALEUR",
+                "SDL_LDE",
+                "MDL_LDM",
+                "VMV_CODE",
+                "UNIT_UNITE",
+                "VARIABLE",
+                "STATUS_STATUT",
+            ],
+            dtype={
+                "SITE_NO": str,
+                "DATE_TIME_HEURE": str,
+                "FLAG_MARQUEUR": str,
+                "VALUE_VALEUR": float,
+                "SDL_LDE": float,
+                "MDL_LDM": float,
+                "VMV_CODE": str,
+                "UNIT_UNITE": str,
+                "VARIABLE": str,
+                "STATUS_STATUT": str,
+            },
+            parse_dates=["DATE_TIME_HEURE"],
+            encoding="ISO-8859-2",
+        )
+        df = pd.concat([df, df_temp], sort=True, ignore_index=True)
 
-sites = pd.read_csv('intermediate_sites_eccc.csv', dtype=str)
+df_sites = pd.read_csv(
+    "raw_eccc_sites.csv",
+    usecols=["SITE_NO", "SITE_NAME", "SITE_TYPE", "LATITUDE", "LONGITUDE", "DATUM"],
+    dtype=str,
+    encoding="ISO-8859-15",
+)
+df = pd.merge(df, df_sites, on="SITE_NO", how="inner")
 
-method_ref = pd.read_csv('raw_methods_eccc.csv', dtype=str, usecols=[
-    'VMV_Code',
-    'National_Method_Code',
-    'Method_Title',
-    ], encoding='ISO-8859-2')
+df_methods = pd.read_csv(
+    "raw_eccc_methods.csv",
+    usecols=[
+        "VMV_CODE",
+        "Method_Title",
+    ],
+    dtype=str,
+    encoding="ISO-8859-2",
+)
+df = pd.merge(df, df_methods, on="VMV_CODE", how="left")
 
-print('Cleaning data...')
 
-# extract data - sites
-sites_list = sites['site_id'].astype(str).unique()
-df['SITE_NO'] = df['SITE_NO'].str.lower()
-df = df[df['SITE_NO'].isin(sites_list)]
+print("Extracting data...")
 
-# extract data - columns
-df = df.drop([
-    'VARIABLE_FR'
-    ], axis='columns')
+# use print-out to identify desired parameters and site types
+print("Available Parameters:\n", file=open("raw_eccc_parameters_and_sites.txt", "a"))
+print(df["VARIABLE"].unique(), file=open("raw_eccc_parameters_and_sites.txt", "a"))
+print("\nAvailable Stite Types:", file=open("raw_eccc_parameters_and_sites.txt", "a"))
+print(df["SITE_TYPE"].unique(), file=open("raw_eccc_parameters_and_sites.txt", "a"))
 
 # extract data - parameters
-params_all = df['VARIABLE'].unique()
-params_extract = r'ALUMINUM|IRON|CALCIUM|MAGNESIUM|POTASSIUM|SODIUM|^CHLORIDE|FLUORIDE|PHOSPHATE|^PH|CARBON|SULPHATE|NITRATE|NITRITE|AMMONIUM|TEMP'
-params_select = []
-# unwanted parameters which meet above string match
-params_drop = [
-'PHENANTHRENE',
-'CARBON DIOXIDE FREE (CALC)',
-'DISSOLVED NITRITE/NITRATE',
-'NITRITE & NITRATE UNFILTERED',
-'ENDOSULFAN SULPHATE TOTAL',
-'PHORATE',
-'PHOSMET TOTAL',
-'CARBONACEOUS OXYGEN DEMAND BOD5',
-'CARBON DISSOLVED INORGANIC',
-'CARBON TOTAL INORGANIC',
-'NITRITE AND NITRATE (AS N)',
-'PH(RAIN)',
-'CARBON DISSOLVED TOTAL',
-'TOTAL PETROLEUM HYDROCARBONS (TPH)',
-'PHENOLS TOTAL',
-'HYDROCARBONS, C10-C16, F2',
-'HYDROCARBONS, C16-C34, F3',
-'HYDROCARBONS, C34-C50, F4',
-'HYDROCARBONS, C6-C10, F1-BTEX',
-'NITRITE AND NITRATE UNFILTERED',
-'NITRATE AND NITRITE (AS N)',
-'PHOSALONE',
-'PHOSMET',
-'PHOSALONE TOTAL',
-'TEMPERATURE AIR',
-'TEMPERATURE (AIR)',
-'PHORATE-D10',
-'CARBON TOTAL ORGANIC (CALCD.)',
-'PHOSPHORUS PARTICULATE (CALCD.)',
-'BICARBONATE (CALCD.)',
-'CARBONATE (CALCD.)',
-'PH THEORETICAL (CALCD.)',
-'SODIUM PERCENTAGE (CALCD.)',
-'SODIUM ADSORPTION RATIO (CALCD.)',
-'CARBON PARTICULATE ORGANIC',
-'ALUMINUM SUSPENDED',
-'IRON SUSPENDED',
-'MAGNESIUM PARTICULATE',
-'COMPLEXED ALUMINUM',
-'COMPLEXED IRON',
-]
-
-for param in params_all:
-    if re.findall(params_extract, param):
-        params_select.append(param)
-df = df.groupby('VARIABLE').filter(lambda x: x.name in params_select)
-df = df[~df['VARIABLE'].isin(params_drop)]
+df = df[df["VARIABLE"].isin(parameters.keys())]
 
 # extract data - units
-unit_drop = [
-    '%',
-    'MG/G',
-    'ÂľG/G',
-    'NG',
-    ]
-df = df[~df['UNIT_UNITE'].isin(unit_drop)]
+df = df[~df["UNIT_UNITE"].isin(["%", "ÂľG/G"])]  # remove illogical units
 
-# extract data - quantified values
-df = df[df['FLAG_MARQUEUR'] != '>']
 
-# standardize column names
-df = df.rename(columns={
-    'SITE_NO':'site_id',
-    'DATE_TIME_HEURE':'date',
-    'FLAG_MARQUEUR':'bdl_flag',
-    'VALUE_VALEUR':'value',
-    'SDL_LDE':'dl_sample',
-    'MDL_LDM':'dl_method',
-    'VMV_CODE':'method_id',
-    'UNIT_UNITE':'unit',
-    'VARIABLE':'parameter_name',
-    'STATUS_STATUT':'status',
-    })
+print("Formatting data...")
 
-# standardize naming conventions
-param_map = {
-    'CALCIUM DISSOLVED':'Ca',
-    'CARBON DISSOLVED ORGANIC':'OC',
-    'CHLORIDE DISSOLVED':'Cl',
-    'FLUORIDE DISSOLVED':'F',
-    'MAGNESIUM DISSOLVED':'Mg',
-    'PH':'pH',
-    'PHOSPHORUS TOTAL':'P',
-    'PHOSPHORUS TOTAL DISSOLVED':'P',
-    'POTASSIUM, FILTERED':'K',
-    'SODIUM, FILTERED':'Na',
-    'SULPHATE DISSOLVED':'SO4',
-    'TEMPERATURE WATER':'temperature',
-    'ALUMINUM TOTAL':'Al',
-    'IRON TOTAL':'Fe',
-    'ALUMINUM DISSOLVED':'Al',
-    'IRON DISSOLVED':'Fe',
-    'POTASSIUM DISSOLVED/FILTERED':'K',
-    'SODIUM DISSOLVED/FILTERED':'Na',
-    'ALUMINUM EXTRACTABLE':'Al',
-    'CALCIUM EXTRACTABLE/UNFILTERED':'Ca',
-    'CALCIUM TOTAL':'Ca',
-    'IRON EXTRACTABLE':'Fe',
-    'MAGNESIUM EXTRACTABLE/UNFILTERED':'Mg',
-    'MAGNESIUM TOTAL':'Mg',
-    'POTASSIUM EXTRACTABLE/UNFILTERED':'K',
-    'POTASSIUM TOTAL':'K',
-    'SODIUM EXTRACTABLE/UNFILTERED':'Na',
-    'SODIUM TOTAL':'Na',
-    'DISSOLVED NITROGEN NITRATE':'NO3 as N',
-    'NITROGEN DISSOLVED NITRITE':'NO2 as N',
-    'CALCIUM EXTRACTABLE':'Ca',
-    'MAGNESIUM EXTRACTABLE':'Mg',
-    'NITROGEN DISSOLVED NITRATE':'NO3 as N',
-    'NITROGEN NITRITE':'NO2 as N',
-    'POTASSIUM EXTRACTABLE':'K',
-    'SODIUM EXTRACTABLE':'Na',
-    'POTASSIUM DISSOLVED':'K',
-    'SODIUM DISSOLVED':'Na',
-    'CARBON TOTAL ORGANIC':'OC',
-    'FLUORIDE':'F',
-    'CHLORIDE':'Cl',
-    'NITROGEN TOTAL NITRATE':'NO3',
-    'SULPHATE':'SO4',
-    'TEMPERATURE WATER (FIELD)':'temperature',
-    'NITRATE (AS N)':'NO3 as N',
-    'CALCIUM  TOTAL':'Ca',
-    'POTASSIUM UNFILTERED':'K',
-    'SODIUM UNFILTERED':'Na',
-    'CARBON, TOTAL ORGANIC (NON PURGEABLE)':'OC',
-    'CHLORIDE TOTAL':'Cl',
-    'SULPHATE TOTAL':'SO4',
-    'TOTAL NITRATE':'NO3',
-    'TEMPERATURE (WATER)':'temperature',
-    'PH (FIELD)':'pH',
-    'NITRATE TOTAL':'NO3',
-    'CALCIUM  EXTRACTABLE/UNFILTERED':'Ca',
-    'ALUMINUM TOTAL RECOVERABLE':'Al',
-    'CALCIUM TOTAL RECOVERABLE':'Ca',
-    'IRON TOTAL RECOVERABLE':'Fe',
-    'MAGNESIUM TOTAL RECOVERABLE':'Mg',
-    'POTASSIUM TOTAL RECOVERABLE':'K',
-    'SODIUM TOTAL RECOVERABLE':'Na',
-    'ORTHOPHOSPHATE DISSOLVED/UNFILTERED':'PO4',
-    'ORTHOPHOSPHATE DISSOLVED':'PO4',
-    'NITROGEN, NITRATE':'NO3',
-    'PHOSPHATE (AS P)':'PO4 as P',
-}
-
-frac_map = {
-    'CALCIUM DISSOLVED':'dissolved',
-    'CARBON DISSOLVED ORGANIC':'dissolved',
-    'CHLORIDE DISSOLVED':'dissolved',
-    'FLUORIDE DISSOLVED':'dissolved',
-    'MAGNESIUM DISSOLVED':'dissolved',
-    'PH':'unspecified',
-    'PHOSPHORUS TOTAL':'total',
-    'PHOSPHORUS TOTAL DISSOLVED':'dissolved',
-    'POTASSIUM, FILTERED':'dissolved',
-    'SODIUM, FILTERED':'dissolved',
-    'SULPHATE DISSOLVED':'dissolved',
-    'TEMPERATURE WATER':'unspecified',
-    'ALUMINUM TOTAL':'total',
-    'IRON TOTAL':'total',
-    'ALUMINUM DISSOLVED':'dissolved',
-    'IRON DISSOLVED':'dissolved',
-    'POTASSIUM DISSOLVED/FILTERED':'dissolved',
-    'SODIUM DISSOLVED/FILTERED':'dissolved',
-    'ALUMINUM EXTRACTABLE':'extractable',
-    'CALCIUM EXTRACTABLE/UNFILTERED':'extractable',
-    'CALCIUM TOTAL':'total',
-    'IRON EXTRACTABLE':'extractable',
-    'MAGNESIUM EXTRACTABLE/UNFILTERED':'extractable',
-    'MAGNESIUM TOTAL':'total',
-    'POTASSIUM EXTRACTABLE/UNFILTERED':'extractable',
-    'POTASSIUM TOTAL':'total',
-    'SODIUM EXTRACTABLE/UNFILTERED':'extractable',
-    'SODIUM TOTAL':'total',
-    'DISSOLVED NITROGEN NITRATE':'dissolved',
-    'NITROGEN DISSOLVED NITRITE':'dissolved',
-    'CALCIUM EXTRACTABLE':'extractable',
-    'MAGNESIUM EXTRACTABLE':'extractable',
-    'NITROGEN DISSOLVED NITRATE':'dissolved',
-    'NITROGEN NITRITE':'unspecified',
-    'POTASSIUM EXTRACTABLE':'extractable',
-    'SODIUM EXTRACTABLE':'extractable',
-    'POTASSIUM DISSOLVED':'dissolved',
-    'SODIUM DISSOLVED':'dissolved',
-    'CARBON TOTAL ORGANIC':'total',
-    'FLUORIDE':'unspecified',
-    'CHLORIDE':'unspecified',
-    'NITROGEN TOTAL NITRATE':'total',
-    'SULPHATE':'unspecified',
-    'TEMPERATURE WATER (FIELD)':'field',
-    'NITRATE (AS N)':'unspecified',
-    'CALCIUM  TOTAL':'total',
-    'POTASSIUM UNFILTERED':'total',
-    'SODIUM UNFILTERED':'total',
-    'CARBON, TOTAL ORGANIC (NON PURGEABLE)':'total',
-    'CHLORIDE TOTAL':'total',
-    'SULPHATE TOTAL':'total',
-    'TOTAL NITRATE':'total',
-    'TEMPERATURE (WATER)':'unspecified',
-    'PH (FIELD)':'field',
-    'NITRATE TOTAL':'total',
-    'CALCIUM  EXTRACTABLE/UNFILTERED':'extractable',
-    'ALUMINUM TOTAL RECOVERABLE':'recoverable',
-    'CALCIUM TOTAL RECOVERABLE':'recoverable',
-    'IRON TOTAL RECOVERABLE':'recoverable',
-    'MAGNESIUM TOTAL RECOVERABLE':'recoverable',
-    'POTASSIUM TOTAL RECOVERABLE':'recoverable',
-    'SODIUM TOTAL RECOVERABLE':'recoverable',
-    'ORTHOPHOSPHATE DISSOLVED/UNFILTERED':'unspecified',
-    'ORTHOPHOSPHATE DISSOLVED':'dissolved',
-    'NITROGEN, NITRATE':'unspecified',
-    'PHOSPHATE (AS P)':'unspecified',
-}
-df['parameter_fraction'] = df['parameter_name']
-df['parameter_name'] = df['parameter_name'].replace(param_map)
-df['parameter_fraction'] = df['parameter_fraction'].replace(frac_map)
-
-unit_map = {
-'ďż˝G/L':'ug/l',
-'ÂľG/L':'ug/l',
-'UG/L':'ug/l',
-'MG/L':'mg/l',
-'MG/L N':'mg/l',
-'MG/L P':'mg/l',
-'PH UNITS':'unit',
-'PH':'unit',
-'DEG C':'deg_c'
-}
-df = df.replace({'unit':unit_map})
-
-# standardize ion measurement notation
-df['value'] = np.where(df['parameter_name'] == 'NO2 as N',
-    df['value'] * 3.2845, df['value']) # NO2 as N to NO2 ion
-df['value'] = np.where(df['parameter_name'] == 'NO3 as N',
-    df['value'] * 4.4268, df['value']) # NO3 as N to NO3 ion
-df['value'] = np.where(df['parameter_name'] == 'NH4 as N',
-    df['value'] * 1.2878, df['value']) # NH4 as N to NH4 ion
-df['value'] = np.where(df['parameter_name'] == 'PO4 as P',
-    df['value'] * 3.06, df['value']) # PO4 as P to PO4 ion
-ion_map = {
-    'NO2 as N':'NO2',
-    'NO3 as N':'NO3',
-    'NH4 as N':'NH4',
-    'PO4 as P':'PO4',
-}
-df['parameter_name'] = df['parameter_name'].replace(ion_map)
-
-# standardize dataframe structure
-df['database'] = 'ECCC'
-df['timezone'] = ''
-df['depth'] = np.NaN
-
-# standardize data types
-df = set_type.samples(df)
-df['dl_sample'] = pd.to_numeric(df['dl_sample'], errors='coerce')
-df['dl_method'] = pd.to_numeric(df['dl_method'], errors='coerce')
-
-# standardize below detection limit notation
-# use <= to account for bdl notation in database
-bdl_map = {
-    'T':'<', # trace value below detection limit
-    ' ':np.NaN,
-    'nan':np.NaN,
+# format - column names
+df = df.rename(
+    columns={
+        "SITE_NO": "MonitoringLocationID",
+        "SITE_NAME": "MonitoringLocationName",
+        "SITE_TYPE": "MonitoringLocationType",
+        "LATITUDE": "MonitoringLocationLatitude",
+        "LONGITUDE": "MonitoringLocationLongitude",
+        "DATUM": "MonitoringLocationHorizontalCoordinateReferenceSystem",
+        "DATE_TIME_HEURE": "ActivityStartDate",
+        "VARIABLE": "CharacteristicName",
+        "VALUE_VALEUR": "ResultValue",
+        "UNIT_UNITE": "ResultUnit",
+        "STATUS_STATUT": "ResultStatusID",
+        "FLAG_MARQUEUR": "ResultDetectionCondition",
+        "SDL_LDE": "ResultDetectionQuantitationLimitMeasure",
+        "VMV_CODE": "ResultAnalyticalMethodID",
+        "Method_Title": "ResultAnalyticalMethodName",
     }
-df['bdl_flag'] = df['bdl_flag'].replace(bdl_map)
+)
 
-df['bdl_flag'] = np.where(df['value'] <= df['dl_sample'],
-    '<', df['bdl_flag'])
-df['value'] = np.where(df['value'] <= df['dl_sample'],
-    df['dl_sample'], df['value'])
+# format - missing required columns
+df["DatasetName"] = "ECCC National Long-Term Water Quality Monitoring Data"
+df["ResultAnalyticalMethodContext"] = "VMV"
+df["LaboratoryName"] = "Unspecified"
+df["ActivityMediaName"] = "Surface Water"
 
-df['bdl_flag'] = np.where(df['value'] <= df['dl_method'],
-    '<', df['bdl_flag'])
-df['value'] = np.where(df['value'] <= df['dl_method'],
-    df['dl_method'], df['value'])
+# format - dates and times
+df["ActivityStartTime"] = df["ActivityStartDate"].dt.time
+df["ActivityStartDate"] = df["ActivityStartDate"].dt.date
 
-df = df.drop(['dl_sample','dl_method'], axis='columns')
+# format - parameter naming
+df["ResultSampleFraction"] = df["CharacteristicName"]
+df["ResultSampleFraction"] = df["ResultSampleFraction"].replace(parameters_fractions)
 
-# standardize units
-df = df.groupby(['parameter_name','unit']).filter(check.units)
-df = df.groupby(['parameter_name','unit']).apply(convert.chemistry,
-     param_col='parameter_name',
-     unit_col='unit',
-     value_col='value')
+df["MethodSpeciation"] = df["CharacteristicName"]
+df["MethodSpeciation"] = df["MethodSpeciation"].replace(parameters_speciation)
 
-# standardize float data
-df['value'] = df['value'].round(decimals=3)
-df['depth'] = df['depth'].round(decimals=3)
+df["ResultValueType"] = df["CharacteristicName"]
+df["ResultValueType"] = df["ResultValueType"].replace(parameters_type)
 
-# remove impossible values
-df = df[(df['value'] >= 0) | (df['parameter_name'] == 'temperature')]
+df["ActivityType"] = df["CharacteristicName"]
+df["ActivityType"] = df["ActivityType"].replace(parameters_activity)
 
-# remove duplicates
-df = df.drop_duplicates(subset=[
-    'site_id',
-    'date',
-    'parameter_name',
-    'parameter_fraction',
-    'value',
-    ], keep='first')
+df["CharacteristicName"] = df["CharacteristicName"].replace(parameters_name)
 
-# extract methods
-methods = extract.methods(df,
-    site_col = 'site_id',
-    param_col ='parameter_name',
-    frac_col = 'parameter_fraction',
-    date_col = 'date',
-    method_col = 'method_id')
+# format - site type
+site_map = {
+    "RIVER/RIVIÈRE": "Lake/Pond",
+    "LAKE/LAC": "Lake/Pond",
+    "POND/ÉTANG": "River/Stream",
+}
+df["MonitoringLocationType"] = df["MonitoringLocationType"].replace(site_map)
 
-method_ref = method_ref.rename({
-    'VMV_Code':'method_id',
-    'National_Method_Code':'method_agency_number',
-    'Method_Title':'method_description',
-    }, axis='columns')
+# format - status
+status_map = {
+    "V": "Validated",
+    "P": "Preliminary",
+}
+df["ResultStatusID"] = df["ResultStatusID"].replace(status_map)
 
-methods = methods.merge(method_ref, on='method_id', how='left')
-
-methods['database'] = 'ECCC'
-methods['method_name'] = ''
-methods['method_type'] = ''
-methods['method_agency'] = 'Environment and Climate Change Canada'
-methods['method_reference'] = 'Environment and Climate Change Canada National Valid Method Variables, contact: EC.MSQEINFORMATION-WQMSINFORMATION.EC@CANADA.CA'
-
-methods = set_type.methods(methods)
-
-# finalize site data
-sites_final = df['site_id'].unique()
-sites = sites[sites['site_id'].isin(sites_final)]
+# format - units
+unit_map = {
+    "ďż˝G/L": "ug/l",
+    "ÂľG/L": "ug/l",
+    "UG/L": "ug/l",
+    "MG/L": "mg/l",
+    "MG/L N": "mg/l",
+    "MG/L P": "mg/l",
+    "PH UNITS": "None",
+    "PH": "None",
+    "DEG C": "deg C",
+}
+df["ResultUnit"] = df["ResultUnit"].replace(unit_map)
+df["ResultDetectionQuantitationLimitUnit"] = df["ResultUnit"]
 
 
-print('Exporting data...')
+# format - below detection limit notation
+df["ResultDetectionQuantitationLimitType"] = np.nan
+bdl_map = {
+    ">": "Above Detection/Quantification Limit",
+    "T": "Below Detection/Quantification Limit",  # trace value below detection limit
+    "<": "Below Detection/Quantification Limit",
+    " ": np.nan,
+    "nan": np.nan,
+}
+df["ResultDetectionCondition"] = df["ResultDetectionCondition"].replace(bdl_map)
 
-df.to_csv('cleaned_samples_eccc.csv', index=False, encoding='utf-8')
-sites.to_csv('cleaned_sites_eccc.csv', index=False, encoding='utf-8')
-methods.to_csv('cleaned_methods_eccc.csv', index=False, encoding='utf-8')
+df["ResultDetectionQuantitationLimitMeasure"] = np.where(
+    df["ResultValue"] < df["ResultDetectionQuantitationLimitMeasure"],
+    df["ResultValue"],
+    df["ResultDetectionQuantitationLimitMeasure"],
+)
 
-print('Done!')
+# use <= to account for bdl notation in dataset
+df["ResultDetectionCondition"] = np.where(
+    df["ResultValue"] < df["ResultDetectionQuantitationLimitMeasure"],
+    "Below Detection/Quantification Limit",
+    df["ResultDetectionCondition"],
+)
+
+df["ResultDetectionQuantitationLimitType"] = np.where(
+    ~df["ResultDetectionCondition"].isnull(),
+    "Sample Detection Limit",
+    df["ResultDetectionQuantitationLimitType"],
+)
+
+df["ResultDetectionCondition"] = np.where(
+    df["ResultValue"] < df["MDL_LDM"],
+    "Below Detection/Quantification Limit",
+    df["ResultDetectionCondition"],
+)
+
+df["ResultDetectionQuantitationLimitType"] = np.where(
+    df["ResultValue"] < df["MDL_LDM"],
+    "Method Detection Level",
+    df["ResultDetectionQuantitationLimitType"],
+)
+
+df["ResultDetectionQuantitationLimitMeasure"] = np.where(
+    df["ResultValue"] < df["MDL_LDM"],
+    df["MDL_LDM"],
+    df["ResultDetectionQuantitationLimitMeasure"],
+)
+
+df = df.drop("MDL_LDM", axis="columns")
+
+
+# delete records without detection limit or reported value information
+df = df.dropna(
+    axis="index",
+    how="all",
+    subset=["ResultDetectionQuantitationLimitMeasure", "ResultValue"],
+)
+
+
+df["ResultValue"] = np.where(
+    ~df["ResultDetectionCondition"].isnull(),
+    np.nan,
+    df["ResultValue"],
+)
+
+df["ResultUnit"] = np.where(
+    ~df["ResultDetectionCondition"].isnull(),
+    np.nan,
+    df["ResultUnit"],
+)
+
+df["ResultDetectionQuantitationLimitMeasure"] = np.where(
+    df["ResultDetectionCondition"].isnull(),
+    np.nan,
+    df["ResultDetectionQuantitationLimitMeasure"],
+)
+df["ResultDetectionQuantitationLimitUnit"] = np.where(
+    df["ResultDetectionCondition"].isnull(),
+    np.nan,
+    df["ResultDetectionQuantitationLimitUnit"],
+)
+df["ResultDetectionQuantitationLimitType"] = np.where(
+    df["ResultDetectionCondition"].isnull(),
+    np.nan,
+    df["ResultDetectionQuantitationLimitType"],
+)
+
+
+print("Exporting data...")
+
+df.to_csv("cleaned_eccc.csv", index=False, encoding="utf-8")
+
+
+print("Done!")

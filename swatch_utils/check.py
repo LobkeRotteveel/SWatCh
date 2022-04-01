@@ -6,7 +6,7 @@ import numpy as np
 
 
 def units(group):
-    """ Check if parameters are in acceptable units
+    """Check if parameters are in acceptable units
 
     Check if units are as expected for each parameter.
 
@@ -24,11 +24,11 @@ def units(group):
         >>> df = df.groupby(['parameter_name','unit']).filter(check.units)
     """
 
-    anion_cation_units = r'^pp|mol/l|eq/l|g/l'
-    ph_units = ['unit', np.nan]
-    temp_units = r'deg_'
+    anion_cation_units = r"^pp|mol/l|eq/l|g/l"
+    ph_units = ["unit", np.nan]
+    temp_units = r"deg_"
 
-    anion_cation_list = r'Al|Fe|Ca|Mg|K|Na|SO4|NO3|NO2|NH4|Cl|F$|^P$|PO4|OC'
+    anion_cation_list = r"Al|Fe|Ca|Mg|K|Na|SO4|NO3|NO2|NH4|Cl|F$|^P$|PO4|OC|IC|CO3|Carbon Dioxide|Alkalinity|Hardness"
 
     param = group.name[0]
     unit = group.name[1]
@@ -37,11 +37,11 @@ def units(group):
         if re.findall(anion_cation_units, unit):
             return True
 
-    if param == 'pH':
+    if param == "pH":
         if unit in ph_units:
             return True
 
-    if param == 'temperature':
+    if param == "temperature":
         if re.findall(temp_units, unit):
             return True
 

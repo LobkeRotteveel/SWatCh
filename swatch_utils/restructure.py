@@ -38,13 +38,13 @@ def df(df, info_cols):
     # restructure dataframe
     for i, col in enumerate(param_cols):
         temp_dict = {}
-        temp_dict.update({'value': df[col], 'param':col})
+        temp_dict.update({"value": df[col], "param": col})
 
         for col in info_cols:
             col = df[col]
             temp_dict.update({col.name: col})
 
         temp_df = pd.DataFrame.from_dict(temp_dict)
-        restruct_df = restruct_df.append(temp_df)
+        restruct_df = pd.concat([df, temp_df], sort=True, ignore_index=True)
 
     return restruct_df

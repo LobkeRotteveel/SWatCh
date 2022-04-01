@@ -7,7 +7,7 @@ import datetime as dt
 
 
 def samples(df):
-    """ Standardize sample data
+    """Standardize sample data
 
     Standardize sample data as specified in the metadata.xlsx file
 
@@ -29,54 +29,55 @@ def samples(df):
     """
 
     str_cols = [
-        'site_id',
-        'date',
-        'timezone',
-        'parameter_name',
-        'parameter_fraction',
-        'unit',
-        'bdl_flag',
-        'database',
-        'method_id',
-        'status',
-        ]
+        "site_id",
+        "date",
+        "timezone",
+        "parameter_name",
+        "parameter_fraction",
+        "unit",
+        "bdl_flag",
+        "database",
+        "method_id",
+        "status",
+        "ResultComment",
+    ]
 
     float_cols = [
-        'value',
-        'depth',
-        ]
+        "value",
+        "depth",
+    ]
 
     unk_cols = [
-        'timezone',
-        'parameter_fraction',
-        'method_id',
-        'status',
-        ]
+        "timezone",
+        "parameter_fraction",
+        "method_id",
+        "status",
+    ]
 
     nan_cols = [
-        'bdl_flag',
-        'depth',
-        ]
+        "bdl_flag",
+        "depth",
+    ]
 
     req_cols = [
-        'site_id',
-        'date',
-        'parameter_name',
-        'value',
-        'unit',
-        'database',
-        ]
+        "site_id",
+        "date",
+        "parameter_name",
+        "value",
+        "unit",
+        "database",
+    ]
 
     # set data types
     for col in str_cols:
         df[col] = df[col].astype(str)
     for col in float_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    df['date'] = pd.to_datetime(df['date'], errors='coerce')
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
     # fill missing values
     for col in unk_cols:
-        df[col] = np.where(df[col] == '', 'unknown', df[col])
+        df[col] = np.where(df[col] == "", "unknown", df[col])
     for col in nan_cols:
         df[col] = np.where(df[col].isnull(), np.NaN, df[col])
 
@@ -85,19 +86,19 @@ def samples(df):
         df = df[~df[col].isnull()]
 
     # standardize string column format
-    str_cols.remove('date')
-    str_cols.remove('parameter_name')
+    str_cols.remove("date")
+    str_cols.remove("parameter_name")
     for col in str_cols:
         df[col] = df[col].str.lower()
-    df['time'] = df['date']
-    df['date'] = df['date'].dt.date
-    df['time'] = df['time'].dt.time
+    df["time"] = df["date"]
+    df["date"] = df["date"].dt.date
+    df["time"] = df["time"].dt.time
 
     return df
 
 
 def sites(df):
-    """ Standardize site data
+    """Standardize site data
 
     Standardize site data as specified in the metadata.xlsx file
 
@@ -118,56 +119,56 @@ def sites(df):
     """
 
     str_cols = [
-        'site_id',
-        'site_name',
-        'site_type',
-        'coordinate_system',
-        'state_province',
-        'country',
-        'water_id',
-        'water_name',
-        'catchment_id',
-        'catchment_name',
-        'agency',
-        'database',
-        ]
+        "site_id",
+        "site_name",
+        "site_type",
+        "coordinate_system",
+        "state_province",
+        "country",
+        "water_id",
+        "water_name",
+        "catchment_id",
+        "catchment_name",
+        "agency",
+        "database",
+    ]
 
     float_cols = [
-        'latitude',
-        'longitude',
-        'elevation',
-        'water_mrt',
-        'water_volume',
-        'catchment_area',
-        ]
+        "latitude",
+        "longitude",
+        "elevation",
+        "water_mrt",
+        "water_volume",
+        "catchment_area",
+    ]
 
     unk_cols = [
-        'site_name',
-        'site_type',
-        'coordinate_system',
-        'state_province',
-        'country',
-        'water_id',
-        'water_name',
-        'catchment_id',
-        'catchment_name',
-        'agency',
-        ]
+        "site_name",
+        "site_type",
+        "coordinate_system",
+        "state_province",
+        "country",
+        "water_id",
+        "water_name",
+        "catchment_id",
+        "catchment_name",
+        "agency",
+    ]
 
     req_cols = [
-        'site_id',
-        'database',
-        ]
+        "site_id",
+        "database",
+    ]
 
     # set data types
     for col in str_cols:
         df[col] = df[col].astype(str)
     for col in float_cols:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     # fill missing values
     for col in unk_cols:
-        df[col] = np.where(df[col] == '', 'unknown', df[col])
+        df[col] = np.where(df[col] == "", "unknown", df[col])
     for col in float_cols:
         df[col] = np.where(df[col].isnull(), np.NaN, df[col])
 
@@ -177,31 +178,31 @@ def sites(df):
 
     # standardize column formats
     lower_case = [
-        'site_id',
-        'water_id',
-        'catchment_id',
-        'site_type',
-        'coordinate_system',
-        'database',
-        ]
+        "site_id",
+        "water_id",
+        "catchment_id",
+        "site_type",
+        "coordinate_system",
+        "database",
+    ]
     title_case = [
-        'site_name',
-        'water_name',
-        'catchment_name',
-        'state_province',
-        'country',
-        'agency',
-        ]
+        "site_name",
+        "water_name",
+        "catchment_name",
+        "state_province",
+        "country",
+        "agency",
+    ]
     three_decimals = [
-        'elevation',
-        'water_mrt',
-        'water_volume',
-        'catchment_area',
-        ]
+        "elevation",
+        "water_mrt",
+        "water_volume",
+        "catchment_area",
+    ]
     five_decimals = [
-        'latitude',
-        'longitude',
-        ]
+        "latitude",
+        "longitude",
+    ]
 
     for col in lower_case:
         df[col] = df[col].str.lower()
@@ -216,7 +217,7 @@ def sites(df):
 
 
 def methods(df):
-    """ Standardize method data
+    """Standardize method data
 
     Standardize method data as specified in the metadata.xlsx file
 
@@ -237,47 +238,46 @@ def methods(df):
     """
 
     req_cols = [
-        'site_id',
-        'database',
-        'date_start',
-        'date_end',
-        ]
+        "site_id",
+        "database",
+        "date_start",
+        "date_end",
+    ]
 
     # set data types
     for col in list(df):
         df[col] = df[col].astype(str)
-    df['date_start'] = pd.to_datetime(df['date_start'])
-    df['date_end'] = pd.to_datetime(df['date_end'])
+    df["date_start"] = pd.to_datetime(df["date_start"])
+    df["date_end"] = pd.to_datetime(df["date_end"])
 
     # fill missing values
     for col in list(df):
-        if (col != 'date_start') & (col != 'date_end'):
-            df[col] = np.where(df[col] == '', 'unknown', df[col])
+        if (col != "date_start") & (col != "date_end"):
+            df[col] = np.where(df[col] == "", "unknown", df[col])
 
     # remove rows with missing required values
     for col in req_cols:
         df = df[~df[col].isnull()]
 
-
     # standardize string column specifications
     lower_case = [
-        'site_id',
-        'database',
-        'parameter_fraction',
-        'method_name',
-        'method_type',
-        'method_description',
-        'method_reference',
-        'method_id',
-        'method_agency_number',
-        ]
+        "site_id",
+        "database",
+        "parameter_fraction",
+        "method_name",
+        "method_type",
+        "method_description",
+        "method_reference",
+        "method_id",
+        "method_agency_number",
+    ]
 
     for col in lower_case:
         df[col] = df[col].str.lower()
 
-    df['date_start'] = df['date_start'].dt.date
-    df['date_end'] = df['date_end'].dt.date
+    df["date_start"] = df["date_start"].dt.date
+    df["date_end"] = df["date_end"].dt.date
 
-    df['method_agency'] = df['method_agency'].str.title()
+    df["method_agency"] = df["method_agency"].str.title()
 
     return df
