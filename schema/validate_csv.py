@@ -40,17 +40,22 @@ def main():
     cli = init_cli()
     args = cli.parse_args()
 
+    csv_rows = lines_in_file(args.csv_path)
+    header_rows = 1
+    data_rows = csv_rows - header_rows
+
+    # Make sure we use a chunk size no larger than what would create n
+    # processes number of chunks.
+    max_chunk_size = maximum_chunk_size(csv_rows, args.processes)
+    chunk_size = min(max_chunk_size, args.chunk_size)
+
     schema = load_schema(args.schema_path)
     record_chunks = records_chunk_loader(
         args.csv_path,
         args.start_row,
         schema,
-        chunksize=args.chunk_size,
+        chunk_size,
     )
-
-    csv_rows = lines_in_file(args.csv_path)
-    header_rows = 1
-    data_rows = csv_rows - header_rows
 
     manager = mp.Manager()
     validation_error_queue = manager.Queue()
@@ -130,6 +135,30 @@ def init_cli():
     return parser
 
 
+def lines_in_file(file_path):
+    """
+    Count the number of lines in a file.
+
+    :param      file_path:  The file path
+    :type       file_path:  str
+    """
+    with open(file_path) as f:
+        return sum(1 for _ in f)
+
+
+def maximum_chunk_size(rows, processes):
+    """
+    Determine the maximum chunk size that allows use to make full use of
+    the specified number of processes.
+
+    :param      rows:       The number of rows that are to be chunked.
+    :type       rows:       int
+    :param      processes:  The number of processes we have available.
+    :type       processes:  int
+    """
+    return int(rows / processes)
+
+
 def load_schema(schema_path):
     """
     Loads the jsonschema from a file path.
@@ -144,7 +173,7 @@ def load_schema(schema_path):
     return schema
 
 
-def records_chunk_loader(csv_path, start_row, schema, chunksize=None):
+def records_chunk_loader(csv_path, start_row, schema, chunk_size=None):
     """
     Loads the records from a CSV file path.
 
@@ -152,15 +181,17 @@ def records_chunk_loader(csv_path, start_row, schema, chunksize=None):
     that can be validated against the schema. The jsonschema is used by
     this function to set the data types of the loaded in records.
 
-    :param      csv_path:   The path to the CSV file
-    :type       csv_path:   str
-    :param      start_row:  The file relative row at which to start. All
-                            rows before this row will be skipped,
-                            excluding the header row.
-    :type       start_row:  int
-    :param      schema:     The jsonschema used to validate the CSV
-                            file.
-    :type       schema:     json object
+    :param      csv_path:    The path to the CSV file
+    :type       csv_path:    str
+    :param      start_row:   The file relative row at which to start.
+                             All rows before this row will be skipped,
+                             excluding the header row.
+    :type       start_row:   int
+    :param      schema:      The jsonschema used to validate the CSV
+                             file.
+    :type       schema:      json object
+    :param      chunk_size:  The number of rows within a chunk.
+    :type       chunk_size:  int
 
     :returns:   A list of individual records for every row in the CSV
                 file. Each record is ready to be validated against the
@@ -175,7 +206,7 @@ def records_chunk_loader(csv_path, start_row, schema, chunksize=None):
         dtype=dtypes,
         skiprows=lambda x: x != 0 and x < start_row,
         iterator=True,
-        chunksize=chunksize,
+        chunksize=chunk_size,
     )
     for df in df_chunks:
         json_string = df.to_json(orient="records")
@@ -212,17 +243,6 @@ dtype_map = {
     "string": str,
     "number": float,
 }
-
-
-def lines_in_file(file_path):
-    """
-    Count the number of lines in a file.
-
-    :param      file_path:  The file path
-    :type       file_path:  str
-    """
-    with open(file_path) as f:
-        return sum(1 for _ in f)
 
 
 def dispatch_workers(
