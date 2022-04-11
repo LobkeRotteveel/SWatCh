@@ -41,7 +41,12 @@ def main():
     args = cli.parse_args()
 
     schema = load_schema(args.schema_path)
-    records = load_records(args.csv_path, args.start_row, schema)
+    record_chunks = records_chunk_loader(
+        args.csv_path,
+        args.start_row,
+        schema,
+        chunksize=args.chunk_size,
+    )
 
     csv_rows = lines_in_file(args.csv_path)
     header_rows = 1
@@ -57,7 +62,7 @@ def main():
         pbar.refresh()
 
         results, progress_queues = dispatch_workers(
-            records,
+            record_chunks,
             args.start_row,
             schema,
             manager,
@@ -112,6 +117,11 @@ def init_cli():
         help="Number of processes to use for validation",
     )
     parser.add_argument(
+        "--chunk-size",
+        type=int,
+        help="Number of rows in a CSV records chunk",
+    )
+    parser.add_argument(
         "csv_path",
         type=str,
         metavar="CSV_PATH",
@@ -134,7 +144,7 @@ def load_schema(schema_path):
     return schema
 
 
-def load_records(csv_path, start_row, schema):
+def records_chunk_loader(csv_path, start_row, schema, chunksize=None):
     """
     Loads the records from a CSV file path.
 
@@ -160,14 +170,17 @@ def load_records(csv_path, start_row, schema):
     # convert start_row to 0-index
     start_row -= 1
     dtypes = get_column_dtypes_from_schema(schema)
-    df = pd.read_csv(
+    df_chunks = pd.read_csv(
         csv_path,
         dtype=dtypes,
         skiprows=lambda x: x != 0 and x < start_row,
+        iterator=True,
+        chunksize=chunksize,
     )
-    json_string = df.to_json(orient="records")
-    records = json.loads(json_string)
-    return records
+    for df in df_chunks:
+        json_string = df.to_json(orient="records")
+        records = json.loads(json_string)
+        yield records
 
 
 def get_column_dtypes_from_schema(schema):
@@ -213,22 +226,24 @@ def lines_in_file(file_path):
 
 
 def dispatch_workers(
-    records, start_row, schema, manager, pool, n, validation_error_queue
+    record_chunks, start_row, schema, manager, pool, n, validation_error_queue
 ):
     """
     Dispatch the validation workers using a pool.
 
-    The records loaded from the CSV file are chunked into approximately
-    equal chunks based on how many processes are used for validation.
-    The chunks are distributed to workers from a pool. Each worker
-    reports its progress using an individual progress queue, and reports
-    its encountered validation errors using the validation error queue.
-    The individual progress queue are returned by the function for
-    monitoring by another process.
+    The records are lazy loaded from the CSV file. This function expects
+    the chunked records from read_csv with chunking enabled. The chunks
+    are distributed to a multiprocessing pool with n workers. Each
+    worker reports its progress using an individual progress queue, and
+    reports its encountered validation errors using the validation error
+    queue. The individual progress queue are returned by the function
+    for monitoring by another process.
 
-    :param      records:                 The CSV records for validation.
-                                         In their json object form.
-    :type       records:                 json object
+    :param      record_chunks:           An iterator containing record
+                                         chunks. The records are from
+                                         the CSV file, converted to
+                                         their JSON object form.
+    :type       record_chunks:           Iterator[List[Json Record]]
     :param      start_row:               The row at which the user
                                          requested the validation start.
                                          1-index based and relative to
@@ -260,8 +275,8 @@ def dispatch_workers(
     """
     progress_queues = list()
     results = list()
-    for chunk, chunk_start_row, _ in chunk_records(records, n):
-        file_relative_worker_start_row = start_row + chunk_start_row
+    file_relative_chunk_start_row = start_row
+    for chunk in record_chunks:
         row_progress_queue = manager.Queue()
         progress_queues.append(row_progress_queue)
         result = pool.apply_async(
@@ -269,40 +284,14 @@ def dispatch_workers(
             (
                 chunk,
                 schema,
-                file_relative_worker_start_row,
+                file_relative_chunk_start_row,
                 validation_error_queue,
                 row_progress_queue,
             ),
         )
         results.append(result)
+        file_relative_chunk_start_row += len(chunk)
     return results, progress_queues
-
-
-def chunk_records(records, n):
-    """
-    Break the records into approximately equal chunks.
-
-    The larger the difference between the length of records and the
-    number of chunks the better the approximation becomes.
-
-    :param      records:  The records from the CSV file. In their json
-                          form.
-    :type       records:  json object
-    :param      n:        The number of chunks to break the records
-                          into.
-    :type       n:        int
-
-    :returns:   A list of chunked records.
-    :rtype:     list[list[json object]]
-    """
-    length = len(records)
-    chunk_size = math.ceil(length / n)
-    for chunk_num in range(n):
-        start = chunk_num * chunk_size
-        stop = (chunk_num + 1) * chunk_size
-        if stop >= length:
-            stop = length
-        yield records[start:stop], start, stop
 
 
 def worker(records, schema, start_row, validation_error_queue, row_progress_queue):
