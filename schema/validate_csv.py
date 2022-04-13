@@ -11,6 +11,7 @@ import multiprocessing as mp
 import queue
 import sys
 import math
+from functools import partial
 
 
 def main():
@@ -69,28 +70,36 @@ def main():
         pbar.n = args.start_row - 1
         pbar.refresh()
 
-        results, progress_queues = dispatch_workers(
-            record_chunks,
-            args.start_row,
-            schema,
-            manager,
-            pool,
-            args.processes,
-            validation_error_queue,
+        distributor = WorkDistributor(
+            record_chunks=record_chunks,
+            manager=manager,
+            start_row=args.start_row,
+        )
+        pool_imap = pool.imap(
+            partial(
+                worker,
+                schema=schema,
+                validation_error_queue=validation_error_queue,
+            ),
+            distributor.work_generator(),
         )
         pool.close()
-
-        while not are_results_ready(results):
+        progress_queues = list()
+        while True:
+            new_progress_queues = distributor.get_new_row_progress_queues()
+            if new_progress_queues:
+                progress_queues.extend(new_progress_queues)
+            update_progress_bar(pbar, progress_queues)
             if total_fails > args.max_fails:
                 tqdm.write("Exit Condition: Max failures reached")
                 sys.exit(1)
-            update_progress_bar(pbar, progress_queues)
             fails = print_validation_reports(
                 validation_error_queue,
                 total_fails,
                 args.max_fails,
             )
             total_fails += fails
+        pool.join()
 
         pbar.n = csv_rows
         pbar.refresh()
@@ -248,76 +257,39 @@ dtype_map = {
 }
 
 
-def dispatch_workers(
-    record_chunks, start_row, schema, manager, pool, n, validation_error_queue
-):
+class WorkDistributor:
     """
-    Dispatch the validation workers using a pool.
+    This class manages the work load and has access to progress.
 
-    The records are lazy loaded from the CSV file. This function expects
-    the chunked records from read_csv with chunking enabled. The chunks
-    are distributed to a multiprocessing pool with n workers. Each
-    worker reports its progress using an individual progress queue, and
-    reports its encountered validation errors using the validation error
-    queue. The individual progress queue are returned by the function
-    for monitoring by another process.
-
-    :param      record_chunks:           An iterator containing record
-                                         chunks. The records are from
-                                         the CSV file, converted to
-                                         their JSON object form.
-    :type       record_chunks:           Iterator[List[Json Record]]
-    :param      start_row:               The row at which the user
-                                         requested the validation start.
-                                         1-index based and relative to
-                                         the original CSV file.
-    :type       start_row:               int
-    :param      schema:                  The json schema to validate
-                                         against.
-    :type       schema:                  json object
-    :param      manager:                 The multiprocessing manager.
-                                         Used to create the individual
-                                         progress queues that are
-                                         returned to the caller.
-    :type       manager:                 mp.Manager
-    :param      pool:                    The worker pool to dispatch
-                                         workers to.
-    :type       pool:                    mp.Pool
-    :param      n:                       The number of processes,
-                                         workers, and chunks.
-    :type       n:                       int
-    :param      validation_error_queue:  The queue used to return
-                                         validation error reports back
-                                         to the calling process.
-    :type       validation_error_queue:  mp.Queue
-
-    :returns:   A tuple containing the async results return from
-                pool.apply_async for each worker, and the individual
-                progress queues for each worker.
-    :rtype:     (list[mp.pool.AsyncResult], list[mp.Queue])
+    The work generator can be used with pool.imap, and the row
+    progress queues are saved and get be return from this class
+    to a top level progress bar.
     """
-    progress_queues = list()
-    results = list()
-    file_relative_chunk_start_row = start_row
-    for chunk in record_chunks:
-        row_progress_queue = manager.Queue()
-        progress_queues.append(row_progress_queue)
-        result = pool.apply_async(
-            worker,
-            (
-                chunk,
-                schema,
-                file_relative_chunk_start_row,
-                validation_error_queue,
-                row_progress_queue,
-            ),
-        )
-        results.append(result)
-        file_relative_chunk_start_row += len(chunk)
-    return results, progress_queues
+
+    def __init__(self, record_chunks, manager, start_row):
+        self._record_chunks = record_chunks
+        self._manager = manager
+        self._start_row = start_row
+        self._new_progress_queues = list()
+        self._new_progress_queues_lock = mp.Lock()
+
+    def work_generator(self):
+        file_relative_chunk_start_row = self._start_row
+        for chunk in self._record_chunks:
+            row_progress_queue = self._manager.Queue()
+            with self._new_progress_queues_lock:
+                self._new_progress_queues.append(row_progress_queue)
+            yield chunk, file_relative_chunk_start_row, row_progress_queue
+            file_relative_chunk_start_row += len(chunk)
+
+    def get_new_row_progress_queues(self):
+        with self._new_progress_queues_lock:
+            queues = self._new_progress_queues.copy()
+            self._new_progress_queues = list()
+        return queues
 
 
-def worker(records, schema, start_row, validation_error_queue, row_progress_queue):
+def worker(args, schema, validation_error_queue):
     """
     The worker that performs the validation of a chunk of records.
 
@@ -347,6 +319,7 @@ def worker(records, schema, start_row, validation_error_queue, row_progress_queu
                 reports on the validation errors encountered.
     :rtype:     (int, list[str])
     """
+    records, start_row, row_progress_queue = args
     reports = list()
     for relative_row, record in enumerate(records):
         try:
