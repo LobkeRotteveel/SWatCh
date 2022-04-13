@@ -47,7 +47,10 @@ def main():
     # Make sure we use a chunk size no larger than what would create n
     # processes number of chunks.
     max_chunk_size = maximum_chunk_size(csv_rows, args.processes)
-    chunk_size = min(max_chunk_size, args.chunk_size)
+    if args.chunk_size:
+        chunk_size = min(max_chunk_size, args.chunk_size)
+    else:
+        chunk_size = max_chunk_size
 
     schema = load_schema(args.schema_path)
     record_chunks = records_chunk_loader(
