@@ -7,13 +7,13 @@ from collections import namedtuple
 
 # lists of units types to convert
 pp_list = r"^pp"
-mol_list = r"mol/l"
-eq_list = r"eq/l"
+mol_list = r"umol/L|mmol/L|Mole/l"
+eq_list = r"ueq/L|meq/L|eq/L"
 
 # lists of desired units for parameters
-ug_list = r"Al|Fe"
-mg_list = r"Ca|Mg|K|Na|SO4|NO3|NO2|NH4|Cl|F$|^P$|PO4|OC|IC|CO3|Carbon Dioxide"
-degc_list = r"temperature"
+ug_list = r"Aluminum|Iron"
+mg_list = r"Alkalinity, Phenolphthalein (total hydroxide+1/2 carbonate)|Alkalinity, carbonate|Bicarbonate|Calcium|Carbon Dioxide, free CO2|Organic carbon|Carbonate|Chloride|Fluoride|Hardness, non-carbonate|Hardness, carbonate|Magnesium|Total Phosphorus, mixed forms|Potassium|Sodium|Sulfate|Nitrate|Nitrite|Inorganic carbon|Orthophosphate|Alkalinity, total|Total hardness|Hardness, Calcium|Ammonium"
+degc_list = r"Temperature, water"
 
 
 def chemistry(group, param_col, unit_col, value_col):
@@ -61,37 +61,47 @@ def chemistry(group, param_col, unit_col, value_col):
 
     Properties = namedtuple("Properties", "mol_mass valency")
     param_tuples = {
-        "Al": Properties(26.9815, 3),
-        "Fe": Properties(55.8450, 2.5),
-        "Ca": Properties(40.0780, 2),
-        "Mg": Properties(24.3050, 2),
-        "K": Properties(39.0983, 1),
-        "Na": Properties(22.9898, 1),
-        "SO4": Properties(96.0626, 2),
-        "NO3": Properties(62.0049, 1),
-        "NO2": Properties(46.0055, 4),
-        "NH4": Properties(18.0385, 1),
-        "Cl": Properties(35.4530, 1),
-        "F": Properties(18.9984, 1),
-        "P": Properties(30.9738, 3.7),
-        "PO4": Properties(94.9714, 3),
-        "OC": Properties(12.0107, 4),
-        "IC": Properties(12.0107, 4),
-        "HCO3": Properties(61.017, 1),
-        "CO3": Properties(60.009, 2),
-        "CO2": Properties(44.0095, 1),
+        "Aluminum": Properties(26.9815, 3),
+        "Iron": Properties(55.8450, 2.5),
+        "Calcium": Properties(40.0780, 2),
+        "Magnesium": Properties(24.3050, 2),
+        "Potassium": Properties(39.0983, 1),
+        "Sodium": Properties(22.9898, 1),
+        "Sulfate": Properties(96.0626, 2),
+        "Nitrate": Properties(62.0049, 1),
+        "Nitrite": Properties(46.0055, 4),
+        "Ammonium": Properties(18.0385, 1),
+        "Chloride": Properties(35.4530, 1),
+        "Fluoride": Properties(18.9984, 1),
+        "Total Phosphorus, mixed forms": Properties(30.9738, 3.7),
+        "Orthophosphate": Properties(94.9714, 3),
+        "Organic carbon": Properties(12.0107, 4),
+        "Inorganic carbon": Properties(12.0107, 4),
+        "Bicarbonate": Properties(61.017, 1),
+        "Carbonate": Properties(60.009, 2),  # reported as CO3
+        "Alkalinity, Phenolphthalein (total hydroxide+1/2 carbonate)": Properties(
+            60.009, 2
+        ),  # reported as CO3
+        "Alkalinity, carbonate": Properties(60.009, 2),  # reported as CO3
+        "Alkalinity, total": Properties(60.009, 2),  # reported as CO3
+        "Hardness, non-carbonate": Properties(60.009, 2),  # reported as CO3
+        "Hardness, carbonate": Properties(60.009, 2),  # reported as CO3
+        "Total hardness": Properties(60.009, 2),  # reported as CO3
+        "Hardness, Calcium": Properties(60.009, 2),  # reported as CO3
+        "Carbon Dioxide, free CO2": Properties(44.0095, 1),
     }
 
     if re.findall(mol_list, unit):
-        group[value_col] = group[value_col] * param_tuples[param].mol_mass
-        if unit == "mol/l":
-            group[unit_col] = "g/l"
-        if unit == "mmol/l":
-            group[unit_col] = "mg/l"
-        if unit == "umol/l":
-            group[unit_col] = "ug/l"
-        if unit == "nmol/l":
-            group[unit_col] = "ng/l"
+        if (
+            param != "Gran acid neutralizing capacity"
+        ):  # unable to convert because constituent ions are unknown
+            group[value_col] = group[value_col] * param_tuples[param].mol_mass
+            if unit == "Mole/l":
+                group[unit_col] = "g/l"
+            if unit == "mmol/L":
+                group[unit_col] = "mg/l"
+            if unit == "umol/L":
+                group[unit_col] = "ug/l"
 
     if re.findall(eq_list, unit):
         group[value_col] = (
@@ -99,44 +109,42 @@ def chemistry(group, param_col, unit_col, value_col):
             * param_tuples[param].mol_mass
             / param_tuples[param].valency
         )
-        if unit == "eq/l":
+        if unit == "eq/L":
             group[unit_col] = "g/l"
-        if unit == "meq/l":
+        if unit == "meq/L":
             group[unit_col] = "mg/l"
-        if unit == "ueq/l":
+        if unit == "ueq/L":
             group[unit_col] = "ug/l"
-        if unit == "neq/l":
-            group[unit_col] = "ng/l"
 
     # standardize SI units
     if re.findall(ug_list, param):
-        if group[unit_col].all() == "g/l":
+        if unit == "g/l":
             group[value_col] = group[value_col] * 10**6
             group[unit_col] = "ug/l"
-        if group[unit_col].all() == "mg/l":
+        if unit == "mg/l":
             group[value_col] = group[value_col] * 10**3
             group[unit_col] = "ug/l"
-        if group[unit_col].all() == "ng/l":
+        if unit == "ng/l":
             group[value_col] = group[value_col] / 10**3
             group[unit_col] = "ug/l"
 
     if re.findall(mg_list, param):
-        if group[unit_col].all() == "g/l":
+        if unit == "g/l":
             group[value_col] = group[value_col] * 10**3
             group[unit_col] = "mg/l"
-        if group[unit_col].all() == "ug/l":
+        if unit == "ug/l":
             group[value_col] = group[value_col] / 10**3
             group[unit_col] = "mg/l"
-        if group[unit_col].all() == "ng/l":
+        if unit == "ng/l":
             group[value_col] = group[value_col] / 10**6
             group[unit_col] = "mg/l"
 
     if re.findall(degc_list, param):
-        if group[unit_col].all() == "deg_f":
+        if unit == "deg F":
             group[value_col] = (group[value_col] - 32) / 1.8
-            group[unit_col] = "deg_c"
-        if group[unit_col].all() == "deg_k":
+            group[unit_col] = "deg C"
+        if unit == "Deg":
             group[value_col] = group[value_col] + 273.15
-            group[unit_col] = "deg_c"
+            group[unit_col] = "deg C"
 
     return group

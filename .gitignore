@@ -4,3 +4,11 @@ scripts/venv/
 *.csv
 *.ods
 *.egg-info/
+*.xlsx
+*.xls
+*.pdf
+*.png
+*.txt
+ss/
+schema.ini
+data_visualization.py

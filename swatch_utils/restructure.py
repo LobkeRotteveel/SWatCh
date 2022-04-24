@@ -14,7 +14,7 @@ def df(df, info_cols):
         df (pandas.DataFrame): dataframe with seperate columns for each
         parameter
         info_cols (list): list of columns which do not contain measured
-        values; i.e. columns which should be duplicated in every row in
+        values; i.e. columns which should be replicated in every row in
         the restuctured dataframe
 
     Returns:
@@ -38,13 +38,13 @@ def df(df, info_cols):
     # restructure dataframe
     for i, col in enumerate(param_cols):
         temp_dict = {}
-        temp_dict.update({"value": df[col], "param": col})
+        temp_dict.update({"ResultValue": df[col], "CharacteristicName": col})
 
         for col in info_cols:
             col = df[col]
             temp_dict.update({col.name: col})
 
         temp_df = pd.DataFrame.from_dict(temp_dict)
-        restruct_df = pd.concat([df, temp_df], sort=True, ignore_index=True)
+        restruct_df = pd.concat([restruct_df, temp_df], sort=True, ignore_index=True)
 
     return restruct_df

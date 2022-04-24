@@ -8,12 +8,7 @@ Data source: http://data.ec.gc.ca/data/substances/monitor/national-long-
 Approach:
     * Merge datasets
     * Extract desired data
-    * Format dataset structure
-    * Format naming conventions
-        * Parameter names
-        * Parameter fractions
-        * Unit names
-        * Data types
+    * Format dataset structure and contents
 
 Notes:
     * Both preliminary and validated data are retained to maintain maximum
@@ -36,19 +31,15 @@ Output:
     * cleaned_eccc.csv
 """
 
-
 import os
 import re
 import pandas as pd
 import numpy as np
 import datetime as dt
 from collections import namedtuple
-from swatch_utils import set_type
-from swatch_utils import convert
-from swatch_utils import extract
-from swatch_utils import check
 
 
+# prepare dictionaries for re-naming parameters
 parameters = namedtuple("parameters", "name fraction speciation type activity")
 parameters = {
     "CALCIUM DISSOLVED": parameters(
@@ -523,7 +514,7 @@ parameters = {
     "ALKALINITY TOTAL": parameters(
         "Alkalinity, total",
         "Unspecified",
-        "AS Unspecified",
+        "as Unspecified",
         "Actual",
         "Sample-Routine",
     ),
@@ -634,7 +625,7 @@ for i in parameters:
 
 print("Importing data...")
 
-path = r"/home/lobke/Boggart/Files/Manuscripts/SWatCh/for publication/data and scripts/scripts"
+path = r"D:/Files/Manuscripts/SWatCh/Data and Scripts/scripts"
 directory = os.listdir(path)
 
 df = pd.DataFrame()
@@ -694,12 +685,6 @@ df = pd.merge(df, df_methods, on="VMV_CODE", how="left")
 
 print("Extracting data...")
 
-# use print-out to identify desired parameters and site types
-print("Available Parameters:\n", file=open("raw_eccc_parameters_and_sites.txt", "a"))
-print(df["VARIABLE"].unique(), file=open("raw_eccc_parameters_and_sites.txt", "a"))
-print("\nAvailable Stite Types:", file=open("raw_eccc_parameters_and_sites.txt", "a"))
-print(df["SITE_TYPE"].unique(), file=open("raw_eccc_parameters_and_sites.txt", "a"))
-
 # extract data - parameters
 df = df[df["VARIABLE"].isin(parameters.keys())]
 
@@ -730,15 +715,18 @@ df = df.rename(
     }
 )
 
-# format - missing required columns
+# format - add missing required columns
 df["DatasetName"] = "ECCC National Long-Term Water Quality Monitoring Data"
 df["ResultAnalyticalMethodContext"] = "VMV"
 df["LaboratoryName"] = "Unspecified"
 df["ActivityMediaName"] = "Surface Water"
+df["ResultComment"] = ""
+
 
 # format - dates and times
 df["ActivityStartTime"] = df["ActivityStartDate"].dt.time
 df["ActivityStartDate"] = df["ActivityStartDate"].dt.date
+
 
 # format - parameter naming
 df["ResultSampleFraction"] = df["CharacteristicName"]
@@ -755,13 +743,15 @@ df["ActivityType"] = df["ActivityType"].replace(parameters_activity)
 
 df["CharacteristicName"] = df["CharacteristicName"].replace(parameters_name)
 
+
 # format - site type
 site_map = {
-    "RIVER/RIVIÈRE": "Lake/Pond",
+    "RIVER/RIVIÈRE": "River/Stream",
     "LAKE/LAC": "Lake/Pond",
-    "POND/ÉTANG": "River/Stream",
+    "POND/ÉTANG": "Lake/Pond",
 }
 df["MonitoringLocationType"] = df["MonitoringLocationType"].replace(site_map)
+
 
 # format - status
 status_map = {
@@ -769,6 +759,7 @@ status_map = {
     "P": "Preliminary",
 }
 df["ResultStatusID"] = df["ResultStatusID"].replace(status_map)
+
 
 # format - units
 unit_map = {
@@ -808,6 +799,13 @@ df["ResultDetectionCondition"] = np.where(
     df["ResultValue"] < df["ResultDetectionQuantitationLimitMeasure"],
     "Below Detection/Quantification Limit",
     df["ResultDetectionCondition"],
+)
+
+df["ResultDetectionQuantitationLimitMeasure"] = np.where(
+    ~df["ResultDetectionCondition"].isnull()
+    & df["ResultDetectionQuantitationLimitMeasure"].isnull(),
+    df["ResultValue"],
+    df["ResultDetectionQuantitationLimitMeasure"],
 )
 
 df["ResultDetectionQuantitationLimitType"] = np.where(
@@ -877,6 +875,5 @@ df["ResultDetectionQuantitationLimitType"] = np.where(
 print("Exporting data...")
 
 df.to_csv("cleaned_eccc.csv", index=False, encoding="utf-8")
-
 
 print("Done!")

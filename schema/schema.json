@@ -29,7 +29,7 @@
       "title": "Monitoring Location Latitude",
       "description": "Latitude. Decimal 6-8 digits (i.e., 37)",
       "type": "number",
-      "minimum": 0,
+      "minimum": -90,
       "maximum": 90
     },
     "MonitoringLocationLongitude": {
@@ -1459,6 +1459,7 @@
         "O-I-ANALYTICAL",
         "OK ST U",
         "ORNL",
+        "OTHER",
         "PALINTEST LTD",
         "PRACTICAL STATS",
         "PROPRIETARY",
