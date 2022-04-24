@@ -2,18 +2,18 @@
 
 The scripts within this repository were developed to compile a standardised global database of acidification-related surface water chemistry - the Surface Water Chemistry (SWatCh) database. SWatCh was developed to facilitate powerful and robust statistical analyses of global surface water chemistry by providing one standardised, openly available, high quality, and trans-boundary database. The manuscript and findings associated with the database created using the scripts within this repository are submitted to Earth Systems Science Data and are presently undergoing review.
 
-SWatCh is a relational database consisting of three datasets (sample, site, and method information) and one ArcGIS shapefile (point file of sample site locations), cross-referenced by site and method identification codes. A limited version of SWatCh can be obtained from PANGAEA (https://pangaea.de/). The limited version of the database does not include the sites and samples from the United Nations GEMStat database due to publication restrictions. The full version of SWatCh can be created using the scripts within this repository which clean, format, and compile data obtained from the resources below.
+SWatCh consists of one datasets (containing sample, site, and method information) and one ArcGIS shapefile (point file of sample site locations), cross-referenced by site identification codes. SWatCh follows the DataStream Water Quality Standard [(DS-WQS)](https://github.com/datastreamapp/schema) schema. A limited version of SWatCh can be obtained from [Zenodo](https://zenodo.org/record/4559696). The limited version of the database does not include the sites and samples from the United Nations GEMStat database due to publication restrictions. The full version of SWatCh can be created using the scripts within this repository which clean, format, and compile data obtained from the resources below.
 
 This is my first released code on GitHub, so I would love to hear your feedback and suggestions so I can improve this and future projects. I will do my best to respond to your comments when I have time to do so.
 
 **Data Sources**
 
-- http://data.ec.gc.ca/data/substances/monitor/national-long-term-water-quality-monitoring-data/
-- http://mcm.lternet.edu/power-search/data-set
-- https://gemstat.org/custom-data-request/
-- https://doi.pangaea.de/10.1594/PANGAEA.902360
-- https://www.waterqualitydata.us/portal/
-- https://www.eea.europa.eu/data-and-maps/data/waterbase-water-quality-2
+- [Environment and Climate Change Canada (ECCC) National Long-Term Water Quality Monitoring Database](http://data.ec.gc.ca/data/substances/monitor/national-long-term-water-quality-monitoring-data/)
+- [National Science Foundation (NSF) McMurdo Dry Valleys Long Term Ecological Research (LTER) Network](http://mcm.lternet.edu/power-search/data-set)
+- [United Nations Environment Program (UNEP) Global Water Quality database and information system (GEMStat)](https://gemstat.org/custom-data-request/)
+- [Jens Hartmann, Ronny Lauerwald, and Nils Moosdorf's Global River Chemistry Database (GloRiCh)](https://doi.pangaea.de/10.1594/PANGAEA.902360)
+- [National Water Quality Monitoring Council (NWQMC), United States Geological Survey (USGS), and United States Environmental Protection Agency (US EPA) Water Quality Portal (including NWIS, STEWARDS, and WQX)](https://www.waterqualitydata.us/)
+- [European Environment Agency (EEA) -  European Environment Information and Observation Network (Eionet) Waterbase](https://www.eea.europa.eu/data-and-maps/data/waterbase-water-quality-icm-1)
 
 ## Getting Started
 
@@ -49,8 +49,11 @@ Datasets which are downloaded from the sources listed above must be re-named fol
 
 The scripts must be run in the following order:
 
-* clean_sites_[dataset name].py
-* clean_samples_[dataset name].py
+* clean_[dataset name].py
+* For very large files, the cleaning scripts are separated by sites and samples:
+  * clean_sites_[dataset name].py
+  * clean_samples_[dataset name].py
+
 
 Where [dataset name] is the name of one of the datasets. Run all of the scripts with the above naming convention before proceeding to run the final script below. The cleaned datasets must be located within the same folder as the `merge.py` script.
 
@@ -68,12 +71,13 @@ SWatCh uses [SemVer](http://semver.org/) for versioning. For the versions availa
 
 ### Scripts
 
-* **Lobke Rotteveel** - *Author* - [LinkedIn]([linkedin.com/in/lobke-rotteveel](https://www.linkedin.com/in/lobke-rotteveel))
+* **Lobke Rotteveel** - *Author* - [GitHub](https://github.com/LobkeRotteveel), [LinkedIn]([linkedin.com/in/lobke-rotteveel](https://www.linkedin.com/in/lobke-rotteveel))
 * **Franz Heubach** - *Co-Author* - [GitHub](https://github.com/FranzHeubach), [LinkedIn]([linkedin.com/in/franz-heubach](https://www.linkedin.com/in/franz-heubach))
 
 ### Manuscript
 
 * **Lobke Rotteveel** - *Author* - [LinkedIn]([linkedin.com/in/lobke-rotteveel](https://www.linkedin.com/in/lobke-rotteveel))
+* **Franz Heubach** - *Co-author* - [LinkedIn](https://www.linkedin.com/in/franz-heubach/)
 * **Dr. Shannon Sterling** - *Co-author* - [LinkedIn]([linkedin.com/in/shannon-sterling-23436616](https://www.linkedin.com/in/shannon-sterling-23436616))
 
 ## License
